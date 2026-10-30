@@ -10,11 +10,11 @@ import java.awt.geom.RoundRectangle2D;
 /** Карточки, вкладки и переключатели экрана настроек. */
 public final class SettingsChrome {
 
-    public static final Color CARD_FILL = new Color(8, 20, 46, 214);
-    public static final Color CARD_LINE = new Color(0x1E5AA8);
-    public static final Color TAB_ON = new Color(0x2F6FE0);
-    public static final Color TAB_OFF = new Color(12, 24, 52, 220);
-    public static final Color FIELD = new Color(0x0C1834);
+    public static final Color CARD_FILL = new Color(16, 24, 39, 232);
+    public static final Color CARD_LINE = new Color(0x263750);
+    public static final Color TAB_ON = new Color(0x168CC2);
+    public static final Color TAB_OFF = new Color(12, 20, 34, 230);
+    public static final Color FIELD = new Color(0x0C1422);
 
     private SettingsChrome() {
     }
@@ -145,7 +145,7 @@ public final class SettingsChrome {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 if (primary) {
-                    g2.setColor(getModel().isRollover() ? new Color(0x4A82F0) : TAB_ON);
+                    g2.setColor(getModel().isRollover() ? Theme.INFO : TAB_ON);
                     g2.fill(new RoundRectangle2D.Float(0, 0, getWidth() - 1, getHeight() - 1, 12, 12));
                 } else {
                     g2.setColor(new Color(10, 22, 48, 180));

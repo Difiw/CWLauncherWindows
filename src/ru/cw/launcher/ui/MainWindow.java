@@ -658,21 +658,7 @@ public class MainWindow extends JFrame {
     }
 
     private void openVersionPopup() {
-        if (versionPopup == null) {
-            versionPopup = new VersionPopup(this, app, this::syncFromState);
-            versionPopup.ignoreOutside(bPickVersion);
-        }
-        if (versionPopup.isVisible()) {
-            versionPopup.setVisible(false);
-            return;
-        }
-        int top = bPickVersion.isShowing()
-                ? bPickVersion.getLocationOnScreen().y
-                : bVersion.getLocationOnScreen().y + bVersion.getHeight();
-        int bottom = bSupport.isShowing()
-                ? bSupport.getLocationOnScreen().y - 8
-                : getLocationOnScreen().y + getHeight() - 40;
-        versionPopup.showBelow(bVersion, top, bottom);
+        VersionsWindow.show(this, app, this::syncFromState);
     }
 
     private void openUrl(String url) {
