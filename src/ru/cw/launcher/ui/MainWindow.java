@@ -233,10 +233,10 @@ public class MainWindow extends JFrame {
                 app.checkServer();
             }
         });
-        setMinimumSize(new Dimension(980, 620));
+        setMinimumSize(new Dimension(1120, 700));
         Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
-        int w = Math.min(1120, Math.max(980, (int) (screen.width * 0.62)));
-        int h = Math.min(700, Math.max(620, (int) (screen.height * 0.68)));
+        int w = Math.min(1440, Math.max(1120, (int) (screen.width * 0.76)));
+        int h = Math.min(900, Math.max(700, (int) (screen.height * 0.80)));
         setSize(w, h);
         setLocationRelativeTo(null);
         layoutAll();

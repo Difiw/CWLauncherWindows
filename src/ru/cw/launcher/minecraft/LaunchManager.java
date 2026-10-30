@@ -327,8 +327,54 @@ public final class LaunchManager {
         } else if (!hasFlag(game, "--assetsDir")) {
             putFlag(game, "--assetsDir", vars.getOrDefault("${game_assets}", assetsRoot));
         }
+        addDirectConnect(game, cfg.serverAddress, profile.minecraftVersion);
         cmd.addAll(game);
         return cmd;
+    }
+
+    /**
+     * Открывает Common World сразу после загрузки клиента. Minecraft 1.20+
+     * поддерживает Quick Play; старым версиям передаём классические server/port.
+     */
+    static void addDirectConnect(List<String> args, String address, String minecraftVersion) {
+        String target = address == null ? "" : address.trim();
+        if (target.isEmpty()) return;
+        removeFlag(args, "--quickPlayMultiplayer");
+        removeFlag(args, "--server");
+        removeFlag(args, "--port");
+        if (supportsQuickPlay(minecraftVersion)) {
+            putFlag(args, "--quickPlayMultiplayer", target);
+            return;
+        }
+        String host = target;
+        String port = "";
+        int split = target.lastIndexOf(':');
+        if (split > 0 && split < target.length() - 1 && target.indexOf(':') == split) {
+            host = target.substring(0, split);
+            port = target.substring(split + 1);
+        }
+        putFlag(args, "--server", host);
+        if (!port.isBlank()) putFlag(args, "--port", port);
+    }
+
+    private static void removeFlag(List<String> args, String flag) {
+        for (int i = args.size() - 1; i >= 0; i--) {
+            if (!flag.equals(args.get(i))) continue;
+            args.remove(i);
+            if (i < args.size() && !args.get(i).startsWith("--")) args.remove(i);
+        }
+    }
+
+    private static boolean supportsQuickPlay(String version) {
+        if (version == null) return false;
+        String[] p = version.replaceAll("[^0-9.]", "").split("\\.");
+        try {
+            int major = p.length > 0 && !p[0].isBlank() ? Integer.parseInt(p[0]) : 0;
+            int minor = p.length > 1 ? Integer.parseInt(p[1]) : 0;
+            return major > 1 || major == 1 && minor >= 20;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
     }
 
     /** Добавляет пару «флаг значение», если такого флага ещё нет. */

@@ -20,26 +20,26 @@ public final class Theme {
     private Theme() {
     }
 
-    public static final Color BG = new Color(0x0B1220);
-    public static final Color PANEL = new Color(0x101C33);
-    public static final Color PANEL_2 = new Color(0x163056);
-    public static final Color FIELD = new Color(0x0E1A30);
-    public static final Color LINE = new Color(0x30363d);
-    public static final Color TEXT = new Color(0xe6edf3);
-    public static final Color MUTED = new Color(0x8b949e);
-    public static final Color GREEN = new Color(0x3fb950);
-    public static final Color AMBER = new Color(0xd29922);
-    public static final Color RED = new Color(0xf85149);
-    public static final Color INFO = new Color(0x58a6ff);
-    public static final Color DISABLED = new Color(0x484f58);
+    public static final Color BG = new Color(0x080C14);
+    public static final Color PANEL = new Color(0x101827);
+    public static final Color PANEL_2 = new Color(0x18243A);
+    public static final Color FIELD = new Color(0x0C1422);
+    public static final Color LINE = new Color(0x263750);
+    public static final Color TEXT = new Color(0xF4F8FF);
+    public static final Color MUTED = new Color(0x93A4BE);
+    public static final Color GREEN = new Color(0x55E381);
+    public static final Color AMBER = new Color(0xFFB84A);
+    public static final Color RED = new Color(0xFF5E68);
+    public static final Color INFO = new Color(0x39C6FF);
+    public static final Color DISABLED = new Color(0x526176);
 
     /** Семейство, в котором точно есть кириллица. Иначе буквы рисуются квадратами. */
     public static final String FAMILY = pickFamily();
-    public static final Font H1 = new Font(FAMILY, Font.BOLD, 26);
-    public static final Font H2 = new Font(FAMILY, Font.BOLD, 17);
-    public static final Font H3 = new Font(FAMILY, Font.BOLD, 13);
-    public static final Font BODY = new Font(FAMILY, Font.PLAIN, 13);
-    public static final Font SMALL = new Font(FAMILY, Font.PLAIN, 11);
+    public static final Font H1 = new Font(FAMILY, Font.BOLD, 30);
+    public static final Font H2 = new Font(FAMILY, Font.BOLD, 19);
+    public static final Font H3 = new Font(FAMILY, Font.BOLD, 14);
+    public static final Font BODY = new Font(FAMILY, Font.PLAIN, 14);
+    public static final Font SMALL = new Font(FAMILY, Font.PLAIN, 12);
     public static final Font MONO = pickMono();
 
     private static String pickFamily() {

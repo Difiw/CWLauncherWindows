@@ -48,7 +48,7 @@ public class Settings {
     // --- дополнительные параметры запуска ---
     public String extraJvmArgs = "";
     public String extraGameArgs = "";
-    public String serverAddress = "";                // авто-подключение при запуске (опционально)
+    public String serverAddress = Settings.SERVER;   // Common World открывается сразу после запуска игры
 
     // --- сеть / источники ---
     public static final String CW_VERSION_URL =
@@ -386,6 +386,9 @@ public class Settings {
         if (bandwidthMbit > 1000) bandwidthMbit = 1000;
         if (uiStyle == null || uiStyle.isBlank()) uiStyle = "standard";
         if (launcherUpdateEvery == null || launcherUpdateEvery.isBlank()) launcherUpdateEvery = "day";
+        // Старые конфиги сохраняли пустую строку и открывали обычное меню Minecraft.
+        // В сборке Common World основной сценарий — мгновенный вход на сервер.
+        if (commonWorld && (serverAddress == null || serverAddress.isBlank())) serverAddress = SERVER;
         if (modsUpdateEvery == null || modsUpdateEvery.isBlank()) modsUpdateEvery = "day";
         if (launchBehavior == null || launchBehavior.isBlank()) launchBehavior = "menu";
         closeLauncherOnLaunch = false;

@@ -28,7 +28,7 @@
     "modpackUrl": "https://drive.google.com/file/d/1yPV7USzhlWKNdBdqypyyB2huFLlBxmAF/view?usp=drive_link",
     "newsUrl": "",
     "galleryUrl": "",
-    "serverIp": "",
+    "serverIp": "commonworld.pterohost.ru:25965",
     "checkIntervalSec": 120
   },
   "technical": {
