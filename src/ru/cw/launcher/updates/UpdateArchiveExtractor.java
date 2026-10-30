@@ -25,7 +25,7 @@ public final class UpdateArchiveExtractor {
             for (Path p : walk.filter(Files::isRegularFile).toList()) {
                 String name = p.getFileName().toString();
                 if (UpdateParser.versionOf(name) == null) {
-                    Log.info("Информация об обновлениях: пропущен файл вне формата UpdateVX.Y.Z.txt — " + name);
+                    Log.info("Информация об обновлениях: пропущен файл вне формата UpdateV<версия>.txt — " + name);
                     continue;
                 }
                 notes.add(UpdateParser.note(name, UpdateTextReader.read(p)));

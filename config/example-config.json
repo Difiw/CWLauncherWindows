@@ -36,6 +36,7 @@
     "gameDir": "",
     "offlineAllowed": true,
     "developerMode": false,
+    "uiAnim": false,
     "verboseLogging": false,
     "maxAttempts": 3
   }

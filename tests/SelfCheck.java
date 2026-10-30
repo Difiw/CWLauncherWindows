@@ -22,6 +22,15 @@ public final class SelfCheck {
         check(Utils.compareVersions("3.2.1", "3.2.0") > 0, "3.2.1 новее 3.2.0");
         check(Utils.compareVersions("3.10.0", "3.9.9") > 0, "3.10.0 новее 3.9.9");
         check("3.2.1".equals(UpdateParser.versionOf("UpdateV3.2.1.txt")), "UpdateV3.2.1");
+        check("5.0.4.1".equals(UpdateParser.versionOf("UpdateV5.0.4.1.txt")), "UpdateV5.0.4.1");
+        check(Utils.compareVersions("5.0.4.1", "5.0.4") > 0, "5.0.4.1 новее 5.0.4");
+        check(UpdateParser.newestFirst(java.util.List.of(
+                UpdateParser.note("UpdateV5.0.4.txt", ""),
+                UpdateParser.note("UpdateV5.0.4.1.txt", ""))).get(0).version().equals("5.0.4.1"),
+                "5.0.4.1 первым в списке");
+        check(ru.cw.launcher.updater.UpdateChecker.launcherUpdateNeeded("3.6.6", "3.6.7"), "3.6.7 — обновление");
+        check(!ru.cw.launcher.updater.UpdateChecker.launcherUpdateNeeded("3.6.7", "3.6.7"), "та же версия — нет кнопки");
+        check(!ru.cw.launcher.updater.UpdateChecker.launcherUpdateNeeded("3.6.7", "3.6.6"), "старая версия — нет кнопки");
         check(UpdateParser.versionOf("Update3.2.1.txt") == null, "без V не читается");
         check(UpdateParser.versionOf("Update_3.2.1.txt") == null, "подчёркивание не читается");
         check(UpdateParser.versionOf("Update-3.2.1.txt") == null, "дефис не читается");
@@ -41,6 +50,7 @@ public final class SelfCheck {
         broken.validate();
         check("1.20.1".equals(broken.minecraftVersion), "пустой config даёт 1.20.1");
         check(broken.autoUpdateBuild && broken.autoUpdateLauncher, "два автообновления включены по умолчанию");
+        check(!broken.uiAnim, "анимации интерфейса выключены по умолчанию");
         broken.ramMb = 1;
         broken.validate();
         check(broken.ramMb >= 512, "слишком маленький RAM поднят до минимума");

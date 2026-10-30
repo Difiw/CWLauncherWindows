@@ -52,7 +52,7 @@ public final class GalleryWindow {
         d.add(nav, BorderLayout.SOUTH);
         close.addActionListener(e -> d.dispose());
         WindowBackground.dim(d);
-        d.setVisible(true);
+        Motion.present(d);
 
         String url = app.cfg.galleryUrl;
         if (Utils.isBlank(url)) {

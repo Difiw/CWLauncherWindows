@@ -163,6 +163,11 @@ public final class BackgroundManager {
 
     private static volatile BufferedImage sharedImage;
     private static volatile int sharedDim = 48;
+    private static BufferedImage sharedFrame;
+    private static BufferedImage sharedFrameSrc;
+    private static int sharedFrameW;
+    private static int sharedFrameH;
+    private static int sharedFrameDim = -1;
 
     /** Фон для окон, кроме главного меню: картинка и выбранное затемнение. */
     public static void paintShared(Graphics g, int w, int h, boolean dim) {
@@ -172,15 +177,31 @@ public final class BackgroundManager {
         BufferedImage img = sharedImage;
         if (dim && img != null && ru.cw.launcher.ui.UiLook.blur()) img = soften(img);
         if (img != null && w > 0 && h > 0) {
-            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            double scale = Math.max((double) w / img.getWidth(), (double) h / img.getHeight());
-            int dw = (int) Math.ceil(img.getWidth() * scale);
-            int dh = (int) Math.ceil(img.getHeight() * scale);
-            g2.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh, null);
-            if (dim && sharedDim > 0) {
-                g2.setColor(new Color(0, 0, 0, sharedDim));
-                g2.fillRect(0, 0, w, h);
+            int dimA = dim ? sharedDim : 0;
+            BufferedImage ready = sharedFrame;
+            if (ready == null || sharedFrameSrc != img || sharedFrameW != w || sharedFrameH != h
+                    || sharedFrameDim != dimA) {
+                ready = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+                Graphics2D cg = ready.createGraphics();
+                cg.setColor(new Color(0x0B1220));
+                cg.fillRect(0, 0, w, h);
+                cg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                double scale = Math.max((double) w / img.getWidth(), (double) h / img.getHeight());
+                int dw = (int) Math.ceil(img.getWidth() * scale);
+                int dh = (int) Math.ceil(img.getHeight() * scale);
+                cg.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh, null);
+                if (dimA > 0) {
+                    cg.setColor(new Color(0, 0, 0, dimA));
+                    cg.fillRect(0, 0, w, h);
+                }
+                cg.dispose();
+                sharedFrame = ready;
+                sharedFrameSrc = img;
+                sharedFrameW = w;
+                sharedFrameH = h;
+                sharedFrameDim = dimA;
             }
+            g2.drawImage(ready, 0, 0, null);
         }
         g2.dispose();
     }
@@ -255,6 +276,10 @@ public final class BackgroundManager {
     public final class View extends JPanel {
         private Timer ticker;
         private double phase;
+        private BufferedImage frame;
+        private BufferedImage frameSrc;
+        private int frameW;
+        private int frameH;
 
         public View() {
             setOpaque(true);
@@ -269,11 +294,12 @@ public final class BackgroundManager {
             setBackground(new Color(0x0B1220));
         }
 
-        /** Плавное «дыхание» световых пятен (только для программного фона). */
+        /** Световые пятна только у нарисованного фона. Фотографию каждый кадр не масштабируем. */
         public void startAnimation() {
             if (ticker != null) return;
-            ticker = new Timer(70, e -> {
-                if (source != Source.RENDERER || !isShowing()) return;
+            ticker = new Timer(80, e -> {
+                if (source != Source.RENDERER || !isShowing() || image != null) return;
+                if (!ru.cw.launcher.ui.UiLook.anim()) return;
                 phase += 0.0035;
                 if (phase > 1) phase -= 1;
                 repaint(0, 0, getWidth(), getHeight());
@@ -301,14 +327,25 @@ public final class BackgroundManager {
             g2.setComposite(AlphaComposite.SrcOver);
             BufferedImage img = image;
             if (img != null) {
-                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                        RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-                // aspect-fill (cover) с центрированием
-                double scale = Math.max((double) w / img.getWidth(), (double) h / img.getHeight());
-                int dw = (int) Math.ceil(img.getWidth() * scale);
-                int dh = (int) Math.ceil(img.getHeight() * scale);
-                g2.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh, null);
+                BufferedImage ready = frame;
+                if (ready == null || frameSrc != img || frameW != w || frameH != h) {
+                    ready = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+                    Graphics2D cg = ready.createGraphics();
+                    cg.setColor(new Color(0x0B1220));
+                    cg.fillRect(0, 0, w, h);
+                    cg.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                            RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    double scale = Math.max((double) w / img.getWidth(), (double) h / img.getHeight());
+                    int dw = (int) Math.ceil(img.getWidth() * scale);
+                    int dh = (int) Math.ceil(img.getHeight() * scale);
+                    cg.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh, null);
+                    cg.dispose();
+                    frame = ready;
+                    frameSrc = img;
+                    frameW = w;
+                    frameH = h;
+                }
+                g2.drawImage(ready, 0, 0, null);
                 g2.dispose();
             } else {
                 g2.dispose();

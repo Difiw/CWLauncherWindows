@@ -17,6 +17,7 @@ import ru.cw.launcher.news.NewsManager;
 import ru.cw.launcher.profiles.LauncherProfile;
 import ru.cw.launcher.profiles.ProfileManager;
 import ru.cw.launcher.settings.SettingsManager;
+import ru.cw.launcher.server.LocalServerManager;
 import ru.cw.launcher.updater.LauncherUpdater;
 import ru.cw.launcher.updater.UpdateChecker;
 import ru.cw.launcher.updates.UpdateInfoManager;
@@ -56,6 +57,7 @@ public final class LauncherApp {
     public final LauncherUpdater updater;
     public final UpdateInfoManager updateInfo = new UpdateInfoManager();
     public final BackgroundManager background = new BackgroundManager();
+    public final LocalServerManager localServers;
 
 
     private final ExecutorService io = Executors.newFixedThreadPool(3, r -> {
@@ -99,6 +101,8 @@ public final class LauncherApp {
             }
         }
         Paths.ensureDirs();
+        localServers = new LocalServerManager(java);
+        localServers.resume();
     }
 
     /** Пути игры всегда смотрят на выбранную версию и её папку. */
@@ -285,8 +289,7 @@ public final class LauncherApp {
                     report == null ? List.of() : report.problems(), profileId);
         }
         boolean jar = Paths.localGamePresent(cfg.minecraftVersion);
-        boolean modsNeedUpdate = pack && ru.cw.launcher.settings.UpdateSchedule.offerMods(cfg)
-                && cfg.remoteBuildVersion != null
+        boolean modsNeedUpdate = pack && cfg.remoteBuildVersion != null
                 && UpdateChecker.buildUpdateNeeded(mods.installedBuildVersion(cfg.instanceId()),
                 cfg.remoteBuildVersion);
         boolean gameNeedsUpdate = jar && (minecraftFilesNeedUpdate || !mcReady || !fabricReady);
@@ -406,29 +409,55 @@ public final class LauncherApp {
 
     /** Версия из modsCWL.zip, прочитанная при запуске. Не затирается устаревшим cwVersion.txt. */
     private volatile String modsZipVersion;
+    /** true — архив скачан в этот запуск, а не взят из кэша. */
+    private volatile boolean modsZipFresh;
 
     /**
      * Версия модов. При запуске читается Version.txt внутри modsCWL.zip.
      * Файл cwVersion.txt остаётся запасным, если архив не скачался.
      */
     public void fetchBuildVersion() {
-        fetchBuildVersion(false);
+        fetchBuildVersion(false, false);
     }
 
     public void fetchBuildVersion(boolean readZip) {
+        fetchBuildVersion(readZip, false);
+    }
+
+    /**
+     * @param forceDownload true — заново скачать архив модов. На экране загрузки архив берётся из кэша.
+     */
+    public void fetchBuildVersion(boolean readZip, boolean forceDownload) {
         if (readZip && cfg.commonWorldMods()) {
-            try {
-                modsZipVersion = mods.downloadRemoteModsVersion(cfg);
-            } catch (Exception e) {
-                modsZipVersion = null;
-                Log.warn("modsCWL.zip: " + Log.reason(e));
-                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            String cached = mods.cachedZipVersion();
+            if (!forceDownload && cached != null) {
+                modsZipVersion = cached;
+                modsZipFresh = false;
+                Log.info("modsCWL.zip = " + cached + " (из кэша, без повторной загрузки)");
+            } else {
+                try {
+                    modsZipVersion = mods.downloadRemoteModsVersion(cfg);
+                    modsZipFresh = true;
+                } catch (Exception e) {
+                    modsZipVersion = cached;
+                    modsZipFresh = false;
+                    Log.warn("modsCWL.zip: " + Log.reason(e));
+                    if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                }
             }
         }
         UpdateChecker.Remote cw = UpdateChecker.cwVersion(cfg);
         if (cw.available() || ServerStatus.cached() != null) networkAvailable = true;
         if (modsZipVersion != null && !modsZipVersion.isBlank()) {
             cfg.remoteBuildVersion = modsZipVersion;
+            // Архив в кэше мог остаться от прошлой версии: свежий cwVersion.txt новее — значит, вышло обновление.
+            if (!modsZipFresh && cw.ok() && !cw.fromCache()
+                    && Utils.compareVersions(cw.value(), modsZipVersion) > 0) {
+                cfg.remoteBuildVersion = cw.value();
+                Log.info("cwVersion.txt = " + cw.value() + ", архив в кэше старее (" + modsZipVersion
+                        + "). Доступно обновление модов.");
+                return;
+            }
             if (cw.ok() && Utils.compareVersions(modsZipVersion, cw.value()) != 0) {
                 Log.warn("cwVersion.txt = " + cw.value() + ", в modsCWL.zip " + modsZipVersion
                         + ". Версия модов берётся из архива.");
@@ -450,25 +479,46 @@ public final class LauncherApp {
     private volatile boolean minecraftFilesNeedUpdate;
     private volatile boolean pendingGameUpdate;
 
-    /** Во время загрузки: сверка выбранной версии с Mojang. Файлы ещё не качаются. */
+    /**
+     * Во время загрузки: только локальная отметка и кэш списка Mojang.
+     * Сам список по сети дочитывается уже после открытия окна.
+     */
     public void checkSelectedMinecraft() {
         String version = cfg.minecraftVersion;
-        boolean remote = false;
-        if (Paths.localGamePresent(version)) {
-            remote = mc.remoteJsonDiffers(version);
-        }
+        boolean remote = Paths.localGamePresent(version) && mc.filesNeedUpdate(version);
         minecraftFilesNeedUpdate = remote;
         Log.info(remote
-                ? "Файлы Minecraft " + version + " на Mojang новее установленных"
-                : "Файлы Minecraft " + version + " совпадают с Mojang");
+                ? "Файлы Minecraft " + version + " помечены к обновлению"
+                : "Файлы Minecraft " + version + " уже синхронизированы");
     }
 
     public void recheckMinecraftFiles() {
-        minecraftFilesNeedUpdate = false;
         io.submit(() -> {
-            checkSelectedMinecraft();
+            Boolean differs = mc.probeRemote(cfg.minecraftVersion);
+            if (differs != null) minecraftFilesNeedUpdate = differs;
             javax.swing.SwingUtilities.invokeLater(this::refreshState);
         });
+    }
+
+    /** Тяжёлые проверки после открытия окна: Mojang, архив модов и список обновлений. */
+    public void finishStartupChecks() {
+        try {
+            Boolean differs = mc.probeRemote(cfg.minecraftVersion);
+            if (differs != null) minecraftFilesNeedUpdate = differs;
+        } catch (Exception e) {
+            Log.warn("Файлы Minecraft: " + Log.reason(e));
+        }
+        try {
+            if (cfg.commonWorldMods()) fetchBuildVersion(true, true);
+        } catch (Exception e) {
+            Log.warn("Версия модов: " + Log.reason(e));
+        }
+        try {
+            fetchUpdateNotes(true);
+        } catch (Exception e) {
+            Log.warn("Список обновлений: " + Log.reason(e));
+        }
+        javax.swing.SwingUtilities.invokeLater(this::refreshState);
     }
 
     public boolean pendingGameUpdate() {
@@ -483,8 +533,12 @@ public final class LauncherApp {
 
     /** Список обновлений, который потом открывается в окне «Обновления». */
     public void fetchUpdateNotes() {
+        fetchUpdateNotes(false);
+    }
+
+    public void fetchUpdateNotes(boolean force) {
         try {
-            UpdateInfoManager.Outcome outcome = updateInfo.sync(true);
+            UpdateInfoManager.Outcome outcome = updateInfo.sync(force);
             if (!outcome.ok()) Log.warn("Информация об обновлениях: " + outcome.message());
         } catch (Exception e) {
             Log.warn("Информация об обновлениях: " + Log.reason(e));
@@ -507,7 +561,6 @@ public final class LauncherApp {
         refreshState();
     }
 
-    private volatile boolean updateRevealed;
     private volatile String offeredVersion;
     private volatile Runnable launcherUpdateFocus;
 
@@ -515,23 +568,19 @@ public final class LauncherApp {
         this.launcherUpdateFocus = focus;
     }
 
-    /** Кнопка под настройками: уведомления выключены или уже нажато уведомление Windows. */
+    /** Кнопка «Обновить лаунчер» под настройками: видна, только если в lVersion.txt версия новее этой сборки. */
     public boolean launcherUpdateButton() {
-        return launcherVersionDiffers() && (updateRevealed || !cfg.notificationsEnabled);
+        return launcherVersionDiffers();
     }
 
     private void offerLauncherUpdate() {
         String version = cfg.remoteLauncherVersion;
         if (version == null || version.equals(offeredVersion)) return;
         offeredVersion = version;
-        if (!cfg.notificationsEnabled) {
-            updateRevealed = true;
-            return;
-        }
+        if (!cfg.notificationsEnabled) return;
         String text = ru.cw.launcher.ui.Lang.t("upd_toast") + version
                 + ru.cw.launcher.ui.Lang.t("upd_now") + ru.cw.launcher.util.Log.VERSION + ".";
         ru.cw.launcher.ui.UiLook.notifyUpdate(text, () -> {
-            updateRevealed = true;
             Runnable focus = launcherUpdateFocus;
             if (focus != null) javax.swing.SwingUtilities.invokeLater(focus);
         });
@@ -652,6 +701,7 @@ public final class LauncherApp {
         String profileId = activeProfileId();
         List<Operation.Task> tasks = new ArrayList<>();
         if (minecraftFilesNeedUpdate || !mc.versionReady(cfg.minecraftVersion)) {
+            mc.armSync();
             tasks.addAll(mc.installTasks(cfg.minecraftVersion, listener()));
         }
         if ("fabric".equalsIgnoreCase(cfg.loader)) {
@@ -674,6 +724,7 @@ public final class LauncherApp {
                 .runningAs(GameState.INSTALLING).finishAs(GameState.READY);
         for (Operation.Task t : tasks) op.add(t.title, t.weight, t.body);
         op.onSuccess(() -> javax.swing.SwingUtilities.invokeLater(() -> {
+            mc.commitSync(cfg.minecraftVersion);
             minecraftFilesNeedUpdate = false;
             pendingGameUpdate = false;
             ModVerifier.writeManifest(cfg.instanceId(), Paths.mods(cfg.instanceId()));
@@ -906,7 +957,7 @@ public final class LauncherApp {
             state.set(snap.state(), snap.detail());
             return;
         }
-        Account account = accounts.active();
+        Account account = account();
         if (account == null) {
             Log.warn("Запуск отменён: нет аккаунта");
             return;
@@ -1019,8 +1070,30 @@ public final class LauncherApp {
         if (!Utils.isBlank(p.fabricLoader)) cfg.fabricLoaderVersion = p.fabricLoader;
         if (p.ramMb > 0) cfg.ramMb = p.ramMb;
         if (!Utils.isBlank(p.jvmArgs)) cfg.extraJvmArgs = p.jvmArgs;
-        if (!Utils.isBlank(p.accountId)) cfg.activeAccountId = p.accountId;
+        if (!Utils.isBlank(p.accountId) && accounts.byId(p.accountId).isPresent()) {
+            accounts.setActive(p.accountId);
+            cfg.activeAccountId = p.accountId;
+        } else if (accounts.active() != null) {
+            p.accountId = accounts.active().id;
+            cfg.activeAccountId = p.accountId;
+            profiles.update(p);
+        }
         bindPaths();
+    }
+
+    /** Закрепляет аккаунт и его библиотеку скинов за текущим игровым профилем. */
+    public void selectAccountForProfile(String accountId) {
+        Account selected = accounts.byId(accountId).orElse(null);
+        if (selected == null) return;
+        accounts.setActive(selected.id);
+        LauncherProfile p = profiles.active();
+        if (p != null) {
+            p.accountId = selected.id;
+            profiles.update(p);
+        }
+        cfg.activeAccountId = selected.id;
+        SettingsManager.save();
+        ru.cw.launcher.skin.PlayerSkin.refresh(selected);
     }
 
     public void saveSettings() {
@@ -1030,6 +1103,11 @@ public final class LauncherApp {
     }
 
     public Account account() {
+        LauncherProfile p = profiles.active();
+        if (p != null && !Utils.isBlank(p.accountId)) {
+            Account linked = accounts.byId(p.accountId).orElse(null);
+            if (linked != null) return linked;
+        }
         return accounts.active();
     }
 
@@ -1037,7 +1115,7 @@ public final class LauncherApp {
         return profiles.active();
     }
 
-    /** Версия в lVersion.txt отличается от этой сборки. */
+    /** Версия в lVersion.txt новее этой сборки. */
     public boolean launcherVersionDiffers() {
         return cfg.remoteLauncherVersion != null
                 && UpdateChecker.launcherUpdateNeeded(Log.VERSION, cfg.remoteLauncherVersion);
@@ -1066,7 +1144,7 @@ public final class LauncherApp {
      * Этот процесс только запускает его и закрывается.
      */
     public void handOffLauncherUpdate() {
-        if (LauncherUpdater.launchExternalUpdater(cfg.launcherDownloadUrl)) {
+        if (LauncherUpdater.launchExternalUpdater(cfg.launcherDownloadUrlFor(cfg.remoteLauncherVersion))) {
             Log.info("Обновление лаунчера передано CWLauncher-Update.exe");
             shutdown();
             System.exit(0);

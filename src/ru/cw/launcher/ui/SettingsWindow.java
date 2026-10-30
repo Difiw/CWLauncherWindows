@@ -497,20 +497,7 @@ public final class SettingsWindow {
             }
         });
         ru.cw.launcher.background.BackgroundManager.setDimPercent(dim.getValue());
-        d.setVisible(true);
-        if (UiLook.transitions()) {
-            try {
-                d.setOpacity(0f);
-                Timer fadeTimer = new Timer(16, null);
-                fadeTimer.addActionListener(ev -> {
-                    float next = Math.min(1f, d.getOpacity() + 0.12f);
-                    d.setOpacity(next);
-                    if (next >= 1f) fadeTimer.stop();
-                });
-                fadeTimer.start();
-            } catch (Exception ignored) {
-            }
-        }
+        Motion.present(d);
     }
 
     private static JComponent limitNetRow(SettingsChrome.Switch limitNet) {
@@ -625,7 +612,7 @@ public final class SettingsWindow {
         south.add(done, BorderLayout.EAST);
         pick.add(scroll, BorderLayout.CENTER);
         pick.add(south, BorderLayout.SOUTH);
-        pick.setVisible(true);
+        Motion.present(pick);
         return true;
     }
 

@@ -56,6 +56,7 @@ public class MainWindow extends JFrame {
     private final CutButton bCancel = new CutButton("Отмена", CutButton.Accent.DANGER, false);
     private final SoftButton bPickVersion = new SoftButton(Icons.Kind.CHEVRON, "Выбор версии");
     private final SoftButton bSettingsMid = new SoftButton(Icons.Kind.SETTINGS, "Настройки");
+    private final SoftButton bLocalServer = new SoftButton(Icons.Kind.SERVER, "Локальные серверы");
     private final LaunchButton bUpdateLauncher = new LaunchButton(false);
     private final SoftButton bCopyIp = new SoftButton(Icons.Kind.COPY, "Скопировать адрес");
     private final JButton bNewsMore = new LinkButton("Подробнее");
@@ -79,6 +80,15 @@ public class MainWindow extends JFrame {
     private int statusCardH;
     private Color serverTone = new Color(0x8EA0C0);
     private boolean mcReady;
+    private String layoutKey = "";
+    private String paintSig = "";
+    private long diskAt;
+    private GameState diskState;
+    private boolean diskMcReady;
+    private boolean diskModsReady;
+    private String diskFabric = "";
+    private int diskMods = -1;
+    private String diskBuild = "";
     private boolean modsReady;
     private boolean fabricReady;
     private int modsInstalled;
@@ -136,17 +146,13 @@ public class MainWindow extends JFrame {
         bCloseGame.addActionListener(e -> app.closeRunningGame());
         bCancel.addActionListener(e -> app.cancelCurrent());
         bPickVersion.addActionListener(e -> openVersionPopup());
+        bLocalServer.addActionListener(e -> LocalServerWindow.show(this, app));
         bSupport.addActionListener(e -> openUrl(app.cfg.supportUrl));
         bFolder.addActionListener(e -> openFolder(Paths.gameDir()));
         bMods.addActionListener(e -> openFolder(Paths.mods(app.cfg.instanceId())));
         bSkin.addActionListener(e -> {
-            Account a = app.account();
-            if (a == null) {
-                Dialogs.info(this, Lang.t("prof_need"));
-                ProfileWindow.show(this, app);
-                return;
-            }
-            openFolder(Paths.accountSkinDir(a.id));
+            if (app.account() == null) Dialogs.info(this, Lang.t("prof_need"));
+            ProfileWindow.show(this, app);
         });
         bUpdates.addActionListener(e -> UpdatesWindow.show(this, app));
         bLatestUpdate.addActionListener(e -> UpdatesWindow.show(this, app));
@@ -242,6 +248,7 @@ public class MainWindow extends JFrame {
     private JComponent[] controls() {
         return new JComponent[]{bSite, bDiscord, bTelegram, bUser, bCopyIp, bLatestUpdate, bProfile, bMin, bClose, bMain,
                 bCloseGame, bVersion, bSupport, bFolder, bMods, bSkin, bExit, bCancel, bPickVersion, bSettingsMid,
+                bLocalServer,
                 bUpdateLauncher,
                 bNewsMore, bUpdatesMore};
     }
@@ -321,6 +328,7 @@ public class MainWindow extends JFrame {
         bUpdatesMore.setVisible(true);
         bPickVersion.setVisible(!busy);
         bSettingsMid.setVisible(!busy);
+        bLocalServer.setVisible(!busy);
         bCancel.setVisible(busy);
 
         int colW = Math.max(210, Math.min(270, (w - 70) / 4));
@@ -352,12 +360,14 @@ public class MainWindow extends JFrame {
             bMain.setBounds(centerX + 8, after, centerW - 16, 54);
         }
         bPickVersion.setBounds(centerX + 8, bMain.getY() + 64, centerW - 16, 44);
-        int settingsW = Math.min(220, centerW - 48);
-        int settingsX = centerX + (centerW - settingsW) / 2;
-        bSettingsMid.setBounds(settingsX, bPickVersion.getY() + 52, settingsW, 40);
+        int settingsW = Math.min(220, (centerW - 56) / 2);
+        int settingsX = centerX + (centerW - settingsW * 2 - 8) / 2;
+        int settingsY = bPickVersion.getY() + 52;
+        bSettingsMid.setBounds(settingsX, settingsY, settingsW, 40);
+        bLocalServer.setBounds(settingsX + settingsW + 8, settingsY, settingsW, 40);
         boolean offerUpdate = app.launcherUpdateButton();
         bUpdateLauncher.setVisible(offerUpdate);
-        bUpdateLauncher.setBounds(settingsX, bSettingsMid.getY() + 48, settingsW, 40);
+        bUpdateLauncher.setBounds(centerX + (centerW - settingsW) / 2, bSettingsMid.getY() + 48, settingsW, 40);
         bCancel.setBounds(centerX + 8, bMain.getY() + 64, centerW - 16, 44);
         boolean fabricOn = app.cfg.commonWorld || app.cfg.fabricFor(app.cfg.minecraftVersion);
         bMods.setVisible(fabricOn);
@@ -382,8 +392,25 @@ public class MainWindow extends JFrame {
         repaint();
     }
 
+    /** Диск читается не чаще раза в секунду. Иначе интерфейс замирает на проверке файлов. */
+    private void readDisk(GameState st) {
+        long now = System.currentTimeMillis();
+        if (diskAt != 0 && st == diskState && now - diskAt < 1200) return;
+        diskAt = now;
+        diskState = st;
+        diskMcReady = app.mc().versionReady(app.cfg.minecraftVersion);
+        String fabric = app.fabric().installedLoader(app.cfg.minecraftVersion);
+        diskFabric = fabric == null ? "" : fabric;
+        diskModsReady = app.mods().isInstalled(app.cfg.instanceId());
+        diskMods = app.mods().modCount(app.cfg.instanceId());
+        String build = app.mods().installedBuildVersion(app.cfg.instanceId());
+        diskBuild = build == null ? "" : build;
+    }
+
     public void syncFromState() {
         GameState st = app.state().get();
+        readDisk(st);
+        mcReady = diskMcReady;
         boolean busy = st.isBusy();
         boolean devWindows = app.cfg.developerMode && app.launch.aliveCount(app.cfg.minecraftVersion) > 0;
         String mainText = labelFor(st);
@@ -399,14 +426,12 @@ public class MainWindow extends JFrame {
                 : Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         bMain.setAccent(st == GameState.ERROR ? new Color(0xE0524D)
                 : st == GameState.UPDATE_AVAILABLE ? new Color(0x2F6FE0) : new Color(0x2F6FE0));
-        mcReady = app.mc().versionReady(app.cfg.minecraftVersion);
-        modsReady = app.mods().isInstalled(app.cfg.instanceId());
-        String fabric = app.fabric().installedLoader(app.cfg.minecraftVersion);
+        modsReady = diskModsReady;
         boolean fabricOn = app.cfg.commonWorld || app.cfg.fabricFor(app.cfg.minecraftVersion);
-        fabricReady = fabric != null;
-        fabricLine = !fabricOn ? "" : (fabric == null ? "Fabric" : "Fabric " + fabric);
-        int mods = app.mods().modCount(app.cfg.instanceId());
-        String build = app.mods().installedBuildVersion(app.cfg.instanceId());
+        fabricReady = !diskFabric.isBlank();
+        fabricLine = !fabricOn ? "" : (diskFabric.isBlank() ? "Fabric" : "Fabric " + diskFabric);
+        int mods = diskMods;
+        String build = diskBuild;
         buildLine = build == null ? "" : build;
         modsInstalled = mods;
         modsLine = mods <= 0 ? Lang.t("mods_missing") : String.valueOf(mods);
@@ -460,8 +485,26 @@ public class MainWindow extends JFrame {
             bLatestUpdate.setEnabled(true);
         }
         bVersion.setEnabled(!busy);
-        layoutAll();
-        board.repaint();
+        boolean split = app.state().get() == GameState.RUNNING
+                || (app.cfg.developerMode && app.launch.aliveCount(app.cfg.minecraftVersion) > 0);
+        String key = getWidth() + "x" + getHeight() + ":" + busy + ":" + split + ":" + fabricOn
+                + ":" + app.launcherUpdateButton();
+        if (!key.equals(layoutKey)) {
+            layoutKey = key;
+            layoutAll();
+        }
+        String view = st + "|" + busy + "|" + serverTitle + "|" + serverPlayers + "|" + serverAddress
+                + "|" + serverTone.getRGB() + "|" + newsTitle + "|" + newsBody + "|" + mcReady
+                + "|" + fabricLine + "|" + modsInstalled + "|" + buildLine + "|" + modsReady;
+        if (busy) {
+            Operation op = app.currentOperation();
+            Progress p = op == null ? null : op.progress();
+            view += "|" + (p == null ? app.state().detail() : p.done() + "/" + p.total() + "/" + p.stage());
+        }
+        if (busy || !view.equals(paintSig)) {
+            paintSig = view;
+            board.repaint();
+        }
         if (UiLook.showFps()) {
             if (fpsTimer == null) {
                 fpsTimer = new Timer(33, e -> board.repaint());
@@ -475,8 +518,7 @@ public class MainWindow extends JFrame {
     }
 
     private boolean modsNeedUpdate() {
-        return ru.cw.launcher.settings.UpdateSchedule.offerMods(app.cfg)
-                && app.cfg.commonWorldMods() && app.cfg.remoteBuildVersion != null
+        return app.cfg.commonWorldMods() && app.cfg.remoteBuildVersion != null
                 && UpdateChecker.buildUpdateNeeded(
                 app.mods().installedBuildVersion(app.cfg.instanceId()),
                 app.cfg.remoteBuildVersion);
@@ -484,9 +526,9 @@ public class MainWindow extends JFrame {
 
     private boolean modsUpdateButton() {
         if (!modsNeedUpdate()) return false;
-        boolean game = !app.mc().versionReady(app.cfg.minecraftVersion)
+        boolean game = !mcReady
                 || ("fabric".equalsIgnoreCase(app.cfg.loader)
-                && app.fabric().installedLoader(app.cfg.minecraftVersion) == null);
+                && (diskFabric == null || diskFabric.isBlank()));
         return !game;
     }
 
@@ -507,6 +549,7 @@ public class MainWindow extends JFrame {
         bCancel.setText(Lang.t("cancel"));
         bPickVersion.setText(Lang.t("version"));
         bSettingsMid.setText(Lang.t("settings"));
+        bLocalServer.setText("Локальные серверы");
         bUpdateLauncher.setText(Lang.t("upd_btn"));
         bNewsMore.setText(Lang.t("more"));
         bUpdatesMore.setText(Lang.t("more"));
@@ -575,7 +618,7 @@ public class MainWindow extends JFrame {
                 op.onError(t -> SwingUtilities.invokeLater(() -> {
                     if (Dialogs.ask(this, Operation.friendly(t) + "\nВосстановить сборку?",
                             "Восстановить", "Закрыть")) {
-                        new RepairWindow(this, app).setVisible(true);
+                        Motion.present(new RepairWindow(this, app));
                     }
                 }));
                 if (!app.submit("Проверка сборки", op)) {
@@ -718,6 +761,11 @@ public class MainWindow extends JFrame {
             if (photo != null && w > 0 && h > 0) {
                 g2.drawImage(cover(photo, w, h), 0, 0, null);
             }
+            Rectangle clip = g2.getClipBounds();
+            if (clip != null && (clip.width < w - 4 || clip.height < h - 4)) {
+                g2.dispose();
+                return;
+            }
 
             GameState st = app.state().get();
             boolean busy = st.isBusy();
@@ -805,6 +853,9 @@ public class MainWindow extends JFrame {
             if (st == GameState.ERROR) {
                 row = statusLine(g2, rightX, row, colW, false,
                         "Сборка: " + Utils.shorten(app.state().detail(), 36));
+            } else if (st == GameState.UPDATE_AVAILABLE && modsUpdateButton()) {
+                row = statusLine(g2, rightX, row, colW, false,
+                        "Новая версия модов: " + app.cfg.remoteBuildVersion);
             } else if (st == GameState.UPDATE_AVAILABLE) {
                 row = statusLine(g2, rightX, row, colW, false, "Доступно обновление");
                 row = statusLine(g2, rightX, row, colW, true, "Лаунчер " + Log.VERSION);
@@ -823,7 +874,9 @@ public class MainWindow extends JFrame {
                 String modsText = modsInstalled <= 0 ? Lang.t("mods_missing") : Lang.t("mods") + " (" + modsInstalled + ")";
                 row = statusLine(g2, rightX, row, colW, modsOk, modsText);
                 if (!buildLine.isBlank()) {
-                    row = statusLine(g2, rightX, row, colW, modsOk, "Версия модов: " + buildLine);
+                    boolean outdated = st == GameState.UPDATE_AVAILABLE && modsUpdateButton();
+                    row = statusLine(g2, rightX, row, colW, modsOk && !outdated,
+                            (outdated ? "Ваша версия модов: " : "Версия модов: ") + buildLine);
                 }
             }
             statusLine(g2, rightX, row, colW, serverOk,
@@ -894,7 +947,8 @@ public class MainWindow extends JFrame {
                         yield "Обнаружены ошибки в модах";
                     }
                     case UPDATE_AVAILABLE -> app.pendingGameUpdate() ? Lang.t("update_mc_h")
-                            : modsUpdateButton() ? Lang.t("update_mods_h") : Lang.t("update_btn");
+                            : modsUpdateButton() ? Lang.t("update_mods_h") + ": " + app.cfg.remoteBuildVersion
+                            : Lang.t("update_btn");
                     case NOT_INSTALLED -> {
                         String d = app.state().detail();
                         yield d == null || d.isBlank() ? "Сборка не установлена" : d;
@@ -1135,10 +1189,15 @@ public class MainWindow extends JFrame {
         @Override
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             int w = getWidth();
             int h = getHeight();
-            Color fill = getModel().isRollover() ? new Color(36, 72, 130, 230) : new Color(18, 42, 78, 210);
-            CutPaint.button(g2, w, h, fill, new Color(0x4C8DFF));
+            float hot = Motion.hot(this);
+            Motion.lift(g2, hot);
+            Color fill = Motion.mix(new Color(18, 42, 78, 210), new Color(36, 72, 130, 230), hot);
+            Shape cut = CutPaint.shape(Math.max(1, w - 1), Math.max(1, h - 1), 10);
+            CutPaint.button(g2, w, h, fill, Motion.mix(new Color(0x4C8DFF), Color.WHITE, hot * 0.55f));
+            Motion.sweep(g2, cut, hot);
             g2.setColor(new Color(0xD6E2F5));
             Icons.Kind draw = mark != null ? mark : kind;
             if (stack) {
@@ -1208,9 +1267,15 @@ public class MainWindow extends JFrame {
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            CutPaint.button(g2, getWidth(), getHeight(),
-                    getModel().isRollover() ? new Color(36, 72, 130, 235) : new Color(16, 40, 74, 220),
-                    new Color(0x4C8DFF));
+            float hot = Motion.hot(this);
+            Motion.lift(g2, hot);
+            int w = getWidth();
+            int h = getHeight();
+            Shape face = CutPaint.shape(Math.max(1, w - 1), Math.max(1, h - 1), 10);
+            CutPaint.button(g2, w, h,
+                    Motion.mix(new Color(16, 40, 74, 220), new Color(36, 72, 130, 235), hot),
+                    Motion.mix(new Color(0x4C8DFF), Color.WHITE, hot * 0.55f));
+            Motion.sweep(g2, face, hot);
             g2.setColor(Color.WHITE);
             Icons.of(Icons.Kind.USER, 16).paint(Color.WHITE, g2, 12, (getHeight() - 16) / 2, 16, 16);
             g2.setFont(getFont());
@@ -1232,6 +1297,9 @@ public class MainWindow extends JFrame {
         private Color accent = new Color(0x2F6FE0);
         private boolean live;
 
+        private float glowPhase;
+        private Timer glowTimer;
+
         LaunchButton(boolean showIcon) {
             super("Запустить");
             this.showIcon = showIcon;
@@ -1242,6 +1310,14 @@ public class MainWindow extends JFrame {
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             setFont(new Font(Theme.FAMILY, Font.BOLD, 18));
             setForeground(Color.WHITE);
+            glowTimer = new Timer(80, e -> {
+                if (!isShowing() || !UiLook.anim() || !isEnabled()) return;
+                glowPhase += 0.045f;
+                if (glowPhase > 1f) glowPhase -= 1f;
+                repaint();
+            });
+            glowTimer.setCoalesce(true);
+            glowTimer.start();
         }
 
         void setAccent(Color c) {
@@ -1262,9 +1338,21 @@ public class MainWindow extends JFrame {
             int w = getWidth();
             int h = getHeight();
             boolean active = isEnabled() || live;
-            Color fill = active ? (getModel().isRollover() && isEnabled() ? accent.brighter() : accent)
-                    : new Color(0x2A3548);
-            CutPaint.button(g2, w, h, fill, new Color(0x8EB4FF));
+            float hot = Motion.hot(this);
+            Motion.lift(g2, hot);
+            if (UiLook.anim() && getModel().isPressed()) {
+                g2.translate(w / 2.0, h / 2.0);
+                g2.scale(0.97, 0.97);
+                g2.translate(-w / 2.0, -h / 2.0);
+            }
+            float wave = active && UiLook.anim()
+                    ? 0.55f + 0.45f * (float) Math.sin(glowPhase * Math.PI * 2) : 0f;
+            Color fill = !active ? new Color(0x2A3548)
+                    : Motion.mix(accent, accent.brighter(), Math.max(hot, wave * 0.35f));
+            Color line = Motion.mix(new Color(0x8EB4FF), Color.WHITE, Math.max(hot * 0.7f, wave * 0.45f));
+            Shape face = CutPaint.shape(Math.max(1, w - 1), Math.max(1, h - 1), 12);
+            CutPaint.button(g2, w, h, fill, line);
+            Motion.sweep(g2, face, hot);
             g2.setColor(Color.WHITE);
             String t = getText() == null ? "" : getText();
             int pad = 14;
@@ -1313,6 +1401,7 @@ public class MainWindow extends JFrame {
         @Override
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
+            Motion.rise(g2, this);
             CutPaint.button(g2, getWidth(), getHeight(),
                     new Color(14, 36, 68, 230),
                     new Color(70, 120, 190));
@@ -1413,8 +1502,10 @@ public class MainWindow extends JFrame {
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            Motion.rise(g2, this);
             g2.setFont(getFont());
-            g2.setColor(new Color(0x8EB4FF));
+            float hot = Motion.hot(this);
+            g2.setColor(Motion.mix(new Color(0x8EB4FF), Color.WHITE, hot * 0.65f));
             FontMetrics fm = g2.getFontMetrics();
             g2.drawString(getText(), 0, fm.getAscent());
             g2.dispose();

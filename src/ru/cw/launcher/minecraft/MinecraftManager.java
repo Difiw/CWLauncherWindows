@@ -4,6 +4,7 @@ import ru.cw.launcher.core.Operation;
 import ru.cw.launcher.model.ProgressListener;
 import ru.cw.launcher.net.Downloads;
 import ru.cw.launcher.net.Http;
+import ru.cw.launcher.net.NetPolicy;
 import ru.cw.launcher.util.Json;
 import ru.cw.launcher.util.Log;
 import ru.cw.launcher.util.Paths;
@@ -42,6 +43,8 @@ public final class MinecraftManager {
     }
 
     private List<VersionEntry> remoteCache = new ArrayList<>();
+    /** SHA-1 списка Mojang, который уже поставили. Следующий запуск его не качает заново. */
+    private volatile String syncedSha;
 
     /** Официальный список версий. При недоступности сети — последний кэш или локальные профили. */
     public List<VersionEntry> versionList() throws IOException {
@@ -199,14 +202,32 @@ public final class MinecraftManager {
         List<Operation.Task> tasks = new ArrayList<>();
         Path json = Paths.versionJsonPath(version);
         tasks.add(new Operation.Task("Получение профиля версии " + version, 1, () -> {
-            String url = clientUrl(version);
-            String body = Http.get(url, "version-json-" + version).body();
+            RemoteMeta meta = remoteMeta(version, 30, NetPolicy.attempts());
+            if (meta == null || Utils.isBlank(meta.url)) {
+                throw new IOException("Версия " + version + " не найдена в списке Mojang");
+            }
+            syncedSha = meta.sha1;
             Utils.ensureDirectories(json.getParent());
-            Utils.writeString(json, body);
+            if (sameSha(json, meta.sha1)) {
+                writeStamp(version, meta.sha1);
+                pl.progress(1, 1, "Профиль версии уже актуален");
+                return;
+            }
+            try {
+                Http.download(meta.url, json, meta.sha1, 0,
+                        (done, total) -> pl.progress(done, Math.max(total, 1), "Профиль версии"),
+                        pl::isCancelled);
+            } catch (IOException e) {
+                String msg = e.getMessage() == null ? "" : e.getMessage();
+                if (!msg.contains("Контрольная сумма")) throw e;
+                Log.warn("Профиль " + version + " сохранён, хотя sha1 Mojang не совпал байт в байт");
+                Http.download(meta.url, json, null, 0, null, pl::isCancelled);
+            }
             VersionJson parsed = VersionJson.load(json);
             if (Utils.isBlank(parsed.mainClass)) {
                 throw new IOException("Профиль версии " + version + " повреждён");
             }
+            if (!Utils.isBlank(meta.sha1)) writeStamp(version, meta.sha1);
             pl.progress(1, 1, "Профиль версии сохранён");
         }));
         tasks.add(new Operation.Task("Загрузка client.jar", 6, () -> {
@@ -294,6 +315,7 @@ public final class MinecraftManager {
             }
             int failed = Downloads.fetch(batch, pl, "Ресурсы");
             assetCache.clear();
+            clearAssetStamps();
             if (failed > 0) {
                 throw new IOException("Не удалось загрузить ресурсы Minecraft: " + failed
                         + ". Без них нет текстур, звуков и языков.");
@@ -312,31 +334,153 @@ public final class MinecraftManager {
         return tasks;
     }
 
+    /** Сброс перед установкой: отметка пишется только если профиль этой установки реально скачали. */
+    public void armSync() {
+        syncedSha = null;
+    }
+
+    /** Запоминает SHA-1 Mojang, который только что поставили. Следующий запуск его не предлагает снова. */
+    public void commitSync(String version) {
+        if (version == null || Utils.isBlank(syncedSha)) return;
+        writeStamp(version, syncedSha);
+    }
+
+    /**
+     * Быстрая локальная сверка: кэш списка Mojang и отметка прошлой установки.
+     * Сеть здесь не трогается — экран загрузки из-за неё не стоит.
+     */
+    public boolean filesNeedUpdate(String version) {
+        if (version == null || !Paths.localGamePresent(version)) return false;
+        Path local = Paths.versionJsonPath(version);
+        if (!Files.isRegularFile(local)) return true;
+        String cached = shaInManifest(Http.cachedBody("mojang-manifest"), version);
+        String stamp = readStamp(version);
+        if (cached != null && cached.equalsIgnoreCase(stamp)) return false;
+        if (cached == null) return false;
+        if (sameSha(local, cached)) {
+            writeStamp(version, cached);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Короткий запрос к Mojang. true — профиль на сервере новее отметки.
+     * null — сеть не ответила, прежнее решение не меняем.
+     */
+    public Boolean probeRemote(String version) {
+        if (version == null || !Paths.localGamePresent(version)) return false;
+        try {
+            String body = Http.get(MANIFEST_URL, "mojang-manifest", 6, 1).body();
+            String sha = shaInManifest(body, version);
+            if (Utils.isBlank(sha)) return false;
+            if (sha.equalsIgnoreCase(readStamp(version)) || sameSha(Paths.versionJsonPath(version), sha)) {
+                writeStamp(version, sha);
+                return false;
+            }
+            return Files.isRegularFile(Paths.versionJsonPath(version));
+        } catch (Exception e) {
+            Log.warn("Список Mojang не сверен: " + Log.reason(e));
+            return null;
+        }
+    }
+
     /**
      * Локальный profile.json выбранной версии отличается от того, что сейчас отдаёт Mojang.
      * Сети нет — считается, что отличий не видно.
      */
     public boolean remoteJsonDiffers(String version) {
-        Path local = Paths.versionJsonPath(version);
-        if (!Files.isRegularFile(local)) return false;
+        return filesNeedUpdate(version);
+    }
+
+    private record RemoteMeta(String url, String sha1) {
+    }
+
+    private RemoteMeta remoteMeta(String version, int timeoutSec, int attempts) throws IOException {
+        String body;
         try {
-            String body = Http.get(MANIFEST_URL, "mojang-manifest").body();
+            body = Http.get(MANIFEST_URL, "mojang-manifest", timeoutSec, attempts).body();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Проверка версии прервана");
+        }
+        if (body == null) return null;
+        Map<String, Object> root = Json.parseObject(body);
+        List<Object> versions = Json.arr(root, "versions");
+        if (versions == null) return null;
+        for (Object o : versions) {
+            if (!(o instanceof Map<?, ?> mm)) continue;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> m = (Map<String, Object>) mm;
+            if (!version.equals(Json.str(m, "id", ""))) continue;
+            return new RemoteMeta(Json.str(m, "url", ""), Json.str(m, "sha1", ""));
+        }
+        return null;
+    }
+
+    private static String shaInManifest(String body, String version) {
+        if (body == null || body.isBlank() || version == null) return null;
+        try {
             Map<String, Object> root = Json.parseObject(body);
             List<Object> versions = Json.arr(root, "versions");
-            if (versions == null) return false;
+            if (versions == null) return null;
             for (Object o : versions) {
                 if (!(o instanceof Map<?, ?> mm)) continue;
                 @SuppressWarnings("unchecked")
                 Map<String, Object> m = (Map<String, Object>) mm;
                 if (!version.equals(Json.str(m, "id", ""))) continue;
-                String sha1 = Json.str(m, "sha1", "");
-                if (sha1 == null || sha1.isBlank()) return false;
-                return !Utils.sha1(local).equalsIgnoreCase(sha1);
+                String sha = Json.str(m, "sha1", "");
+                return sha == null || sha.isBlank() ? null : sha;
             }
+        } catch (RuntimeException e) {
+            return null;
+        }
+        return null;
+    }
+
+    private static Path stampPath(String version) {
+        return Paths.versionDir(version).resolve(".cw-mojang.sha1");
+    }
+
+    private static String readStamp(String version) {
+        try {
+            Path file = stampPath(version);
+            if (!Files.isRegularFile(file)) return null;
+            String text = Files.readString(file).trim();
+            return text.isEmpty() ? null : text;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static void writeStamp(String version, String sha1) {
+        if (version == null || sha1 == null || sha1.isBlank()) return;
+        try {
+            Path file = stampPath(version);
+            Utils.ensureDirectories(file.getParent());
+            Files.writeString(file, sha1.trim());
+        } catch (IOException e) {
+            Log.warn("Отметка версии Minecraft не записана: " + Log.reason(e));
+        }
+    }
+
+    private static boolean sameSha(Path file, String sha1) {
+        if (sha1 == null || sha1.isBlank() || !Files.isRegularFile(file)) return false;
+        try {
+            return Utils.sha1(file).equalsIgnoreCase(sha1);
+        } catch (IOException e) {
             return false;
-        } catch (Exception e) {
-            Log.warn("Список Mojang не сверен: " + Log.reason(e));
-            return false;
+        }
+    }
+
+    private static void clearAssetStamps() {
+        Path indexes = Paths.assets().resolve("indexes");
+        if (!Files.isDirectory(indexes)) return;
+        try (var list = Files.list(indexes)) {
+            for (Path p : list.toList()) {
+                if (p.getFileName().toString().endsWith(".cw-complete")) Files.deleteIfExists(p);
+            }
+        } catch (IOException ignored) {
         }
     }
 
@@ -401,6 +545,17 @@ public final class MinecraftManager {
             String key = index.toAbsolutePath() + ":" + Files.size(index);
             Integer cached = assetCache.get(key);
             if (cached != null) return cached;
+            Path mark = index.resolveSibling(v.assets + ".cw-complete");
+            String token = String.valueOf(Files.size(index));
+            if (Files.isRegularFile(mark)) {
+                try {
+                    if (token.equals(Files.readString(mark).trim())) {
+                        assetCache.put(key, 0);
+                        return 0;
+                    }
+                } catch (IOException ignored) {
+                }
+            }
             Map<String, Object> root = Json.parseObject(Utils.readString(index));
             Map<String, Object> objects = Json.obj(root, "objects");
             if (objects == null || objects.isEmpty()) return 1;
@@ -416,6 +571,12 @@ public final class MinecraftManager {
                 if (!Files.isRegularFile(target) || (size > 0 && Files.size(target) != size)) missing++;
             }
             assetCache.put(key, missing);
+            if (missing == 0) {
+                try {
+                    Files.writeString(mark, token);
+                } catch (IOException ignored) {
+                }
+            }
             return missing;
         } catch (Exception e) {
             return 1;

@@ -23,7 +23,7 @@ import java.util.zip.ZipFile;
  *  - повреждённые jar (нечитаемый архив / нет fabric.mod.json);
  *  - несовпадение версий модов с манифестом;
  *  - наличие конфигурационных файлов;
- *  - соответствие версии сборки.
+ *  - соответствие версии сборки (outdated(): это обновление, а не ошибка).
  */
 public final class ModVerifier {
 
@@ -45,14 +45,16 @@ public final class ModVerifier {
             if (!mismatched.isEmpty()) {
                 p.add("Несовпадение версий: " + Utils.shorten(String.join(", ", mismatched), 160));
             }
-            if (expectedVersion != null && buildVersion != null
-                    && !Utils.normalizeVersion(expectedVersion).equals(Utils.normalizeVersion(buildVersion))) {
-                p.add("Версия сборки " + buildVersion + " не совпадает с актуальной " + expectedVersion);
-            }
             if (freeSpaceMb >= 0 && freeSpaceMb < 1024) {
                 p.add("Мало свободного места: " + freeSpaceMb + " МБ");
             }
             return p;
+        }
+
+        /** Вышла новая версия сборки. Её показывает кнопка «Обновить моды», в ошибки она не входит. */
+        public boolean outdated() {
+            return expectedVersion != null && buildVersion != null
+                    && Utils.compareVersions(expectedVersion, buildVersion) != 0;
         }
 
         public boolean ok() {

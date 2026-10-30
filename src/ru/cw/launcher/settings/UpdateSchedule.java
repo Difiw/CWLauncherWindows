@@ -25,12 +25,6 @@ public final class UpdateSchedule {
         return startup;
     }
 
-    /** Кнопка «Обновить моды» только когда автообновление сборки включено и проверка не ручная. */
-    public static boolean offerMods(Settings cfg) {
-        if (cfg == null || !cfg.autoUpdateBuild) return false;
-        return !"manual".equals(cfg.modsUpdateEvery);
-    }
-
     public static boolean refetch(Settings cfg, boolean mods) {
         if (cfg == null) return false;
         if (mods) {

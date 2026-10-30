@@ -142,7 +142,7 @@ public class VersionPopup extends JWindow {
         place(anchorAt.x, area.y);
         hint.setText("Загрузка списка версий…");
         list.removeAll();
-        setVisible(true);
+        Motion.present(this);
         toFront();
         requestFocus();
         app.io().submit(() -> {

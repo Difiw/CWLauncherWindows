@@ -13,7 +13,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
 import java.util.stream.Stream;
 
@@ -23,6 +27,8 @@ public final class PlayerSkin {
     private static volatile BufferedImage face;
     private static volatile Path file;
     private static long stamp = -1;
+    private static String ownerId = "";
+    private static final String SELECTED = ".selected";
 
     private PlayerSkin() {
     }
@@ -42,29 +48,86 @@ public final class PlayerSkin {
     /** Голова скина этого аккаунта. Без файла — null, и тогда рисуется значок профиля. */
     public static BufferedImage headOfAccount(Account account) {
         if (account == null) return null;
-        Path newest = newest(Paths.accountSkinDir(account.id));
-        return newest == null ? null : headOf(newest);
+        Path selected = selected(account);
+        return selected == null ? null : headOf(selected);
     }
 
-    /** Кладёт картинку скином этого аккаунта. Старые файлы в его папке убираются. */
-    public static void assign(Account account, Path source) throws IOException {
+    /** Один сохранённый вариант скина. */
+    public record SkinEntry(Path file, String name, boolean selected) {
+    }
+
+    /** Все скины профиля; выбранный всегда первый. */
+    public static List<SkinEntry> all(Account account) {
+        if (account == null) return List.of();
+        Path dir = Paths.accountSkinDir(account.id);
+        Path chosen = selected(account);
+        List<SkinEntry> result = new ArrayList<>();
+        try (Stream<Path> files = Files.list(dir)) {
+            files.filter(Files::isRegularFile).filter(PlayerSkin::image)
+                    .sorted(Comparator.comparingLong(PlayerSkin::modified).reversed())
+                    .forEach(p -> result.add(new SkinEntry(p, displayName(p), same(p, chosen))));
+        } catch (IOException ignored) {
+        }
+        result.sort(Comparator.comparing(SkinEntry::selected).reversed());
+        return List.copyOf(result);
+    }
+
+    /** Добавляет скин в библиотеку этого профиля и сразу выбирает его. */
+    public static Path assign(Account account, Path source) throws IOException {
         if (account == null || source == null) throw new IOException("Нет аккаунта или файла");
+        BufferedImage image = read(source);
+        if (image == null) throw new IOException("Файл не является читаемым изображением");
+        if (!validLayout(image)) throw new IOException("Нужен скин Minecraft 64×32, 64×64 или кратного размера");
         Path dir = Paths.accountSkinDir(account.id);
         Files.createDirectories(dir);
-        try (Stream<Path> list = Files.list(dir)) {
-            for (Path old : list.filter(Files::isRegularFile).toList()) Files.deleteIfExists(old);
+        byte[] png = gamePng(source);
+        if (png == null || png.length == 0) throw new IOException("Не удалось подготовить PNG для Minecraft");
+        String base = safeBase(source.getFileName().toString());
+        String hash = digest(png).substring(0, 12);
+        Path target = dir.resolve(base + "-" + hash + ".png");
+        Files.write(target, png);
+        choose(account, target);
+        return target;
+    }
+
+    /** Выбирает уже сохранённый скин профиля. */
+    public static void choose(Account account, Path skin) throws IOException {
+        if (account == null || skin == null) throw new IOException("Нет профиля или скина");
+        Path dir = Paths.accountSkinDir(account.id).toAbsolutePath().normalize();
+        Path normalized = skin.toAbsolutePath().normalize();
+        if (!normalized.startsWith(dir) || !Files.isRegularFile(normalized) || !image(normalized)) {
+            throw new IOException("Скин не принадлежит выбранному профилю");
         }
-        String n = source.getFileName().toString().toLowerCase(Locale.ROOT);
-        String ext = n.endsWith(".jpg") || n.endsWith(".jpeg") ? ".jpg" : ".png";
-        Files.copy(source, dir.resolve("skin" + ext), StandardCopyOption.REPLACE_EXISTING);
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve(SELECTED), normalized.getFileName().toString());
+        refresh(account, true);
+    }
+
+    /** Удаляет вариант. Если он был выбран, выбирается следующий. */
+    public static void remove(Account account, Path skin) throws IOException {
+        if (account == null || skin == null) return;
+        Path dir = Paths.accountSkinDir(account.id).toAbsolutePath().normalize();
+        Path normalized = skin.toAbsolutePath().normalize();
+        if (!normalized.startsWith(dir)) throw new IOException("Скин не принадлежит выбранному профилю");
+        Files.deleteIfExists(normalized);
+        Path next = newest(dir);
+        if (next == null) Files.deleteIfExists(dir.resolve(SELECTED));
+        else Files.writeString(dir.resolve(SELECTED), next.getFileName().toString());
+        refresh(account, true);
     }
 
     /** Перечитывает папку скина аккаунта. Возвращает true, если голова изменилась. */
     public static boolean refresh(Account account) {
+        return refresh(account, false);
+    }
+
+    private static boolean refresh(Account account, boolean force) {
         if (account != null) adoptLegacy(account);
-        Path newest = account == null ? null : newest(Paths.accountSkinDir(account.id));
+        Path newest = account == null ? null : selected(account);
+        String nextOwner = account == null || account.id == null ? "" : account.id;
         long next = stampOf(newest);
-        if (next == stamp && (account != null || face == null)) return false;
+        if (!force && nextOwner.equals(ownerId) && next == stamp && (account != null || face == null)) return false;
+        ownerId = nextOwner;
         stamp = next;
         file = newest;
         face = newest == null ? null : headOf(newest);
@@ -89,12 +152,66 @@ public final class PlayerSkin {
         if (legacy == null) return;
         try {
             Files.createDirectories(own);
-            Files.copy(legacy, own.resolve(legacy.getFileName().toString()), StandardCopyOption.REPLACE_EXISTING);
+            Path adopted = own.resolve(legacy.getFileName().toString());
+            Files.copy(legacy, adopted, StandardCopyOption.REPLACE_EXISTING);
+            Files.writeString(own.resolve(SELECTED), adopted.getFileName().toString());
             Files.createDirectories(marker.getParent());
             Files.writeString(marker, account.id);
             Log.info("Скин из общей папки закреплён за аккаунтом " + account.username);
         } catch (IOException e) {
             Log.warn("Скин не перенесён: " + Log.reason(e));
+        }
+    }
+
+    private static Path selected(Account account) {
+        if (account == null) return null;
+        Path dir = Paths.accountSkinDir(account.id);
+        Path marker = dir.resolve(SELECTED);
+        try {
+            if (Files.isRegularFile(marker)) {
+                String name = Files.readString(marker).trim();
+                Path candidate = dir.resolve(name).normalize();
+                if (candidate.startsWith(dir.normalize()) && Files.isRegularFile(candidate) && image(candidate)) {
+                    return candidate;
+                }
+            }
+        } catch (IOException ignored) {
+        }
+        Path fallback = newest(dir);
+        if (fallback != null) {
+            try {
+                Files.writeString(marker, fallback.getFileName().toString());
+            } catch (IOException ignored) {
+            }
+        }
+        return fallback;
+    }
+
+    private static boolean same(Path a, Path b) {
+        return a != null && b != null && a.toAbsolutePath().normalize().equals(b.toAbsolutePath().normalize());
+    }
+
+    private static boolean validLayout(BufferedImage img) {
+        int w = img.getWidth(), h = img.getHeight();
+        return w >= 64 && w % 64 == 0 && (h == w || h * 2 == w);
+    }
+
+    private static String safeBase(String name) {
+        String base = name == null ? "skin" : name.replaceFirst("(?i)\\.(png|jpe?g)$", "");
+        base = base.replaceAll("[^A-Za-z0-9А-Яа-яЁё_-]+", "-").replaceAll("^-+|-+$", "");
+        return base.isBlank() ? "skin" : base.substring(0, Math.min(48, base.length()));
+    }
+
+    private static String displayName(Path path) {
+        String n = path.getFileName().toString().replaceFirst("(?i)\\.png$", "");
+        return n.replaceFirst("-[0-9a-f]{12}$", "");
+    }
+
+    private static String digest(byte[] data) throws IOException {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(data));
+        } catch (Exception e) {
+            throw new IOException("Не удалось вычислить идентификатор скина", e);
         }
     }
 

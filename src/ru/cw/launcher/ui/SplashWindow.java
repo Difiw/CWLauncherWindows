@@ -17,6 +17,10 @@ public class SplashWindow extends JFrame {
     private final JLabel stage = new JLabel("Загрузка данных о лаунчере", SwingConstants.CENTER);
     private final JLabel percent = new JLabel("0%", SwingConstants.CENTER);
     private final JProgressBar bar = new JProgressBar(0, 100);
+    private float glow;
+    private int shown;
+    private int target;
+    private Timer motion;
 
     public SplashWindow() {
         super("CWLauncher");
@@ -36,8 +40,9 @@ public class SplashWindow extends JFrame {
                 Shape fill = CutPaint.shape(getWidth(), getHeight(), CUT);
                 g2.setColor(new Color(0x0B1220));
                 g2.fill(fill);
-                g2.setColor(new Color(0x3B82F6));
-                g2.setStroke(new BasicStroke(1.8f));
+                float pulse = UiLook.anim() ? 0.65f + 0.35f * (float) Math.sin(glow * Math.PI * 2) : 1f;
+                g2.setColor(new Color(59, 130, 246, (int) (120 + 110 * pulse)));
+                g2.setStroke(new BasicStroke(1.4f + pulse));
                 g2.draw(CutPaint.shape(Math.max(1, getWidth() - 1), Math.max(1, getHeight() - 1), CUT));
                 g2.dispose();
             }
@@ -86,6 +91,26 @@ public class SplashWindow extends JFrame {
             }
         });
         clip();
+        motion = new Timer(32, e -> {
+            if (!isShowing()) return;
+            boolean moving = false;
+            if (UiLook.anim()) {
+                glow += 0.02f;
+                if (glow > 1f) glow -= 1f;
+                moving = true;
+            }
+            if (shown != target) {
+                int step = Math.max(1, Math.abs(target - shown) / 5);
+                shown += shown < target ? step : -step;
+                if (Math.abs(target - shown) <= step) shown = target;
+                bar.setValue(shown);
+                percent.setText(shown + "%");
+                moving = true;
+            }
+            if (moving) getContentPane().repaint();
+        });
+        motion.setCoalesce(true);
+        motion.start();
         addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
@@ -94,19 +119,29 @@ public class SplashWindow extends JFrame {
         });
     }
 
+    @Override
+    public void dispose() {
+        if (motion != null) motion.stop();
+        super.dispose();
+    }
+
     private void clip() {
         if (getWidth() < 8 || getHeight() < 8) return;
         setShape(CutPaint.shape(getWidth(), getHeight(), CUT));
     }
 
-    /** Реальный шаг локальной проверки, 0–100. */
+    /** Реальный шаг локальной проверки, 0–100. Полоса доезжает, а не прыгает. */
     public void step(int value, String text) {
         Runnable r = () -> {
             int v = Math.max(0, Math.min(100, value));
+            target = v;
             bar.setIndeterminate(false);
-            bar.setValue(v);
-            percent.setText(v + "%");
             stage.setText(text == null || text.isBlank() ? " " : text);
+            if (!UiLook.anim()) {
+                shown = v;
+                bar.setValue(v);
+                percent.setText(v + "%");
+            }
         };
         if (SwingUtilities.isEventDispatchThread()) r.run();
         else SwingUtilities.invokeLater(r);

@@ -59,7 +59,12 @@ public final class Main {
         Paths.ensureDirs();
         javax.imageio.ImageIO.setUseCache(false);
         Log.init(Paths.mainLog(), false, true);
-        Http.init(Paths.cache(), 12_000, 40_000);
+        try {
+            Http.init(Paths.cache(), 12_000, 40_000);
+        } catch (RuntimeException e) {
+            // Сбой сетевого стека Windows не должен запрещать офлайн-запуск лаунчера.
+            Log.warn("HTTP недоступен при старте, продолжаю офлайн: " + Log.reason(e));
+        }
         SettingsManager.load();
         ru.cw.launcher.core.PlayTime.begin();
         if (SettingsManager.get().autoStart) {
@@ -119,6 +124,7 @@ public final class Main {
                     w.showStartup();
                     schedule(app);
                     app.refreshState();
+                    app.io().submit(app::finishStartupChecks);
                     app.checkServer();
                     boolean pack = app.cfg.commonWorldMods();
                     boolean fabricNeeded = "fabric".equalsIgnoreCase(app.cfg.loader) && loader == null;
@@ -148,52 +154,48 @@ public final class Main {
 
     /** Версия лаунчера, моды, новости и список обновлений качаются одновременно. */
     private static void loadStartupFeeds(LauncherApp app, SplashWindow splash) {
-        String[] labels = {
-                "Подгрузка версии модов",
-                "Подгрузка новостей",
-                "Подгрузка списка обновлений",
-                "Проверка файлов Minecraft",
-                "Готово"
-        };
-        int[] marks = {48, 64, 78, 92, 100};
-        java.util.concurrent.atomic.AtomicInteger done = new java.util.concurrent.atomic.AtomicInteger();
-        Runnable[] jobs = {
-                () -> {
+        record Job(String label, Runnable body) {
+        }
+        Job[] jobs = {
+                new Job("Подгрузка версии лаунчера", () -> {
                     try {
                         app.fetchLauncherVersion();
                     } catch (Exception e) {
                         Log.warn("Версия лаунчера: " + Log.reason(e));
                     }
-                },
-                () -> {
+                }),
+                new Job("Подгрузка версии модов", () -> {
                     try {
                         app.fetchBuildVersion(true);
                     } catch (Exception e) {
                         Log.warn("Версия модов: " + Log.reason(e));
                     }
-                },
-                () -> {
+                }),
+                new Job("Подгрузка новостей", () -> {
                     try {
                         app.fetchNews();
                     } catch (Exception e) {
                         Log.warn("Новости: " + Log.reason(e));
                     }
-                },
-                () -> {
+                }),
+                new Job("Подгрузка списка обновлений", () -> {
                     try {
-                        app.fetchUpdateNotes();
+                        app.fetchUpdateNotes(false);
                     } catch (Exception e) {
                         Log.warn("Список обновлений: " + Log.reason(e));
                     }
-                },
-                () -> {
+                }),
+                new Job("Проверка файлов Minecraft", () -> {
                     try {
                         app.checkSelectedMinecraft();
                     } catch (Exception e) {
                         Log.warn("Файлы Minecraft: " + Log.reason(e));
                     }
-                }
+                })
         };
+        java.util.Set<String> active = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        java.util.concurrent.atomic.AtomicInteger done = new java.util.concurrent.atomic.AtomicInteger();
+        int total = jobs.length;
         ExecutorService pool = Executors.newFixedThreadPool(jobs.length, r -> {
             Thread t = new Thread(r, "cw-boot");
             t.setDaemon(true);
@@ -201,11 +203,19 @@ public final class Main {
         });
         try {
             List<Future<?>> tasks = new ArrayList<>();
-            for (Runnable job : jobs) {
+            for (Job job : jobs) {
                 tasks.add(pool.submit(() -> {
-                    job.run();
-                    int i = Math.min(labels.length - 1, done.getAndIncrement());
-                    splash.step(marks[i], labels[i]);
+                    active.add(job.label());
+                    splash.step(28 + (64 * done.get() / total), String.join(" · ", active));
+                    try {
+                        job.body().run();
+                    } finally {
+                        active.remove(job.label());
+                        int finished = done.incrementAndGet();
+                        String label = active.isEmpty() ? "Готово" : String.join(" · ", active);
+                        int pct = finished >= total ? 100 : 28 + (64 * finished / total);
+                        splash.step(pct, label);
+                    }
                 }));
             }
             for (Future<?> task : tasks) task.get();

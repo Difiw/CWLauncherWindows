@@ -134,7 +134,7 @@ public final class UpdatesWindow {
         buttons.add(close);
         d.add(buttons, BorderLayout.SOUTH);
         WindowBackground.dim(d);
-        d.setVisible(true);
+        Motion.present(d);
     }
 
     private static void apply(Component parent, JLabel status, AtomicReference<List<UpdateParser.Note>> current,

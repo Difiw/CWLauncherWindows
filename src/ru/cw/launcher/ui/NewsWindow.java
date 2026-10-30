@@ -6,7 +6,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.List;
 
-/** Новость целиком: тот же большой прокручиваемый экран, что и у списка обновлений. */
+/** Новости целиком: сразу текст на весь экран, без списка заголовков сбоку. */
 public final class NewsWindow {
 
     private NewsWindow() {
@@ -29,27 +29,7 @@ public final class NewsWindow {
         title.setForeground(Color.WHITE);
         d.add(title, BorderLayout.NORTH);
 
-        DefaultListModel<NewsManager.Item> model = new DefaultListModel<>();
-        for (NewsManager.Item item : items) model.addElement(item);
-        JList<NewsManager.Item> list = new JList<>(model);
-        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        list.setBackground(Theme.FIELD);
-        list.setForeground(Theme.TEXT);
-        list.setFont(Theme.BODY);
-        list.setFixedCellHeight(44);
-        list.setCellRenderer((jl, value, index, selected, focus) -> {
-            String caption = value == null ? "" : value.title();
-            if (caption.length() > 48) caption = caption.substring(0, 47) + "…";
-            JLabel l = new JLabel(caption);
-            l.setOpaque(true);
-            l.setFont(Theme.BODY);
-            l.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
-            l.setBackground(selected ? new Color(0x1A3F73) : Theme.FIELD);
-            l.setForeground(selected ? Color.WHITE : Theme.TEXT);
-            return l;
-        });
-
-        JTextArea area = new JTextArea();
+        JTextArea area = new JTextArea(text(items));
         area.setEditable(false);
         area.setLineWrap(true);
         area.setWrapStyleWord(true);
@@ -57,36 +37,13 @@ public final class NewsWindow {
         area.setBackground(Theme.FIELD);
         area.setForeground(Theme.TEXT);
         area.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        area.setCaretPosition(0);
 
-        Runnable showSelected = () -> {
-            NewsManager.Item item = list.getSelectedValue();
-            if (item == null) {
-                area.setText("");
-            } else {
-                String date = item.date() == null || item.date().isBlank() ? "" : item.date() + "\n\n";
-                area.setText(item.title() + "\n\n" + date + (item.text() == null ? "" : item.text()));
-            }
-            area.setCaretPosition(0);
-        };
-        list.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) showSelected.run();
-        });
-        if (!model.isEmpty()) list.setSelectedIndex(0);
-        else showSelected.run();
-
-        JScrollPane listScroll = new JScrollPane(list);
         JScrollPane textScroll = new JScrollPane(area);
-        Theme.style(listScroll);
         Theme.style(textScroll);
-        listScroll.setBorder(BorderFactory.createLineBorder(new Color(0x2458A0)));
         textScroll.setBorder(BorderFactory.createLineBorder(new Color(0x2458A0)));
-        listScroll.getViewport().setBackground(Theme.FIELD);
         textScroll.getViewport().setBackground(Theme.FIELD);
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, listScroll, textScroll);
-        split.setDividerLocation(280);
-        split.setBackground(new Color(0x0B1220));
-        split.setBorder(null);
-        d.add(split, BorderLayout.CENTER);
+        d.add(textScroll, BorderLayout.CENTER);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         buttons.setOpaque(false);
@@ -95,6 +52,19 @@ public final class NewsWindow {
         buttons.add(close);
         d.add(buttons, BorderLayout.SOUTH);
         WindowBackground.dim(d);
-        d.setVisible(true);
+        Motion.present(d);
+    }
+
+    /** Все новости подряд: заголовок, дата, текст. */
+    private static String text(List<NewsManager.Item> items) {
+        StringBuilder sb = new StringBuilder();
+        for (NewsManager.Item item : items) {
+            if (item == null) continue;
+            if (sb.length() > 0) sb.append("\n\n────────────\n\n");
+            sb.append(item.title()).append("\n\n");
+            if (item.date() != null && !item.date().isBlank()) sb.append(item.date()).append("\n\n");
+            if (item.text() != null) sb.append(item.text());
+        }
+        return sb.toString();
     }
 }

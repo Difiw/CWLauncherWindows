@@ -58,12 +58,19 @@ public final class Http {
     }
 
     public static void reconfigure() {
-        if (NetPolicy.proxy()) System.setProperty("java.net.useSystemProxies", "true");
-        HttpClient.Builder b = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(NetPolicy.leader() ? 8 : 15))
-                .followRedirects(HttpClient.Redirect.NORMAL);
-        if (NetPolicy.proxy()) b.proxy(ProxySelector.getDefault());
-        client = b.build();
+        try {
+            if (NetPolicy.proxy()) System.setProperty("java.net.useSystemProxies", "true");
+            HttpClient.Builder b = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(NetPolicy.leader() ? 8 : 15))
+                    .followRedirects(HttpClient.Redirect.NORMAL);
+            if (NetPolicy.proxy()) b.proxy(ProxySelector.getDefault());
+            client = b.build();
+        } catch (RuntimeException e) {
+            // Повреждённый/ограниченный сетевой стек Windows не должен закрывать
+            // весь лаунчер: локальная игра и настройки доступны офлайн.
+            client = null;
+            Log.warn("HTTP-клиент не создан: " + Log.reason(e));
+        }
     }
 
     private static HttpClient client() {
@@ -86,27 +93,27 @@ public final class Http {
      * @param cacheKey ключ для условного кэша (null — без кэша)
      */
     public static Cached get(String url, String cacheKey) throws IOException, InterruptedException {
+        return get(url, cacheKey, 30, NetPolicy.attempts());
+    }
+
+    /** Короткий запрос: экран загрузки не ждёт три долгих таймаута подряд. */
+    public static Cached get(String url, String cacheKey, int timeoutSec, int attempts)
+            throws IOException, InterruptedException {
         Path entry = cacheKey == null ? null : cacheEntry(cacheKey);
         String etag = null;
         String lastMod = null;
         String stale = null;
         if (entry != null && Files.exists(entry)) {
             try {
-                String raw = Files.readString(entry, StandardCharsets.UTF_8);
-                int sep = raw.indexOf("\n\n");
-                if (sep > 0) {
-                    String head = raw.substring(0, sep);
-                    stale = raw.substring(sep + 2);
-                    for (String h : head.split("\n")) {
-                        int i = h.indexOf(':');
-                        if (i <= 0) continue;
-                        String k = h.substring(0, i).trim().toLowerCase(Locale.ROOT);
-                        String v = h.substring(i + 1).trim();
-                        if (k.equals("etag")) etag = v;
-                        if (k.equals("last-modified")) lastMod = v;
-                    }
-                } else {
-                    stale = raw;
+                String[] parts = splitCache(Files.readString(entry, StandardCharsets.UTF_8));
+                stale = parts[1];
+                for (String h : parts[0].split("\n")) {
+                    int i = h.indexOf(':');
+                    if (i <= 0) continue;
+                    String k = h.substring(0, i).trim().toLowerCase(Locale.ROOT);
+                    String v = h.substring(i + 1).trim();
+                    if (k.equals("etag")) etag = v;
+                    if (k.equals("last-modified")) lastMod = v;
                 }
             } catch (IOException e) {
                 stale = null;
@@ -114,11 +121,12 @@ public final class Http {
         }
 
         IOException last = null;
-        int attempts = NetPolicy.attempts();
-        for (int attempt = 1; attempt <= attempts; attempt++) {
+        int tries = Math.max(1, attempts);
+        int timeout = Math.max(2, timeoutSec);
+        for (int attempt = 1; attempt <= tries; attempt++) {
             try {
                 HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
-                        .timeout(Duration.ofSeconds(30))
+                        .timeout(Duration.ofSeconds(timeout))
                         .header("User-Agent", userAgent)
                         .header("Accept", "application/json, text/plain, */*")
                         .header("Accept-Encoding", "gzip");
@@ -140,8 +148,8 @@ public final class Http {
                 throw new IOException("HTTP " + code + " для " + url);
             } catch (IOException e) {
                 last = e;
-                if (attempt < attempts) {
-                    Log.warn("Попытка " + attempt + "/" + attempts + " не удалась (" + e.getMessage()
+                if (attempt < tries) {
+                    Log.warn("Попытка " + attempt + "/" + tries + " не удалась (" + e.getMessage()
                             + "), повтор через " + (attempt * 800) + " мс: " + shortUrl(url));
                     Thread.sleep(attempt * 800L);
                 }
@@ -156,6 +164,26 @@ public final class Http {
 
     public static String getBody(String url) throws IOException, InterruptedException {
         return get(url, null).body();
+    }
+
+    /** Тело из дискового кэша, без сети. null — кэша ещё нет. */
+    public static String cachedBody(String cacheKey) {
+        Path entry = cacheEntry(cacheKey);
+        if (entry == null || !Files.isRegularFile(entry)) return null;
+        try {
+            String body = splitCache(Files.readString(entry, StandardCharsets.UTF_8))[1];
+            return body == null || body.isBlank() ? null : body;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /** Заголовок кэша и тело. Пустой заголовок не приклеивается к JSON. */
+    private static String[] splitCache(String raw) {
+        if (raw == null) return new String[]{"", ""};
+        int sep = raw.indexOf("\n\n");
+        if (sep >= 0) return new String[]{raw.substring(0, sep), raw.substring(sep + 2)};
+        return new String[]{"", raw};
     }
 
     /**

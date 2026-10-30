@@ -35,6 +35,7 @@ public final class SkinServer {
     private static volatile String uuid = "00000000000000000000000000000000";
     private static volatile int port;
     private static volatile String metaJson;
+    private static volatile String revision = "0";
     private static ServerSocket socket;
 
     private SkinServer() {
@@ -45,6 +46,7 @@ public final class SkinServer {
         png = skinFile;
         byte[] packed = PlayerSkin.gamePng(skinFile);
         skinBytes = packed != null ? packed : Files.readAllBytes(skinFile);
+        revision = Integer.toUnsignedString(java.util.Arrays.hashCode(skinBytes), 36);
         slim = PlayerSkin.slim(skinFile);
         if (account != null) {
             if (account.username != null && !account.username.isBlank()) name = account.username;
@@ -218,7 +220,9 @@ public final class SkinServer {
     }
 
     private static String profile() {
-        String url = "http://127.0.0.1:" + port + "/skin.png";
+        // Уникальный URL обязателен: Minecraft кэширует текстуру по адресу и иначе
+        // способен показывать первый загруженный скин после смены профиля.
+        String url = "http://127.0.0.1:" + port + "/skin/" + revision + ".png";
         String model = slim ? ",\"metadata\":{\"model\":\"slim\"}" : "";
         String textures = "{\"timestamp\":" + System.currentTimeMillis()
                 + ",\"profileId\":\"" + uuid + "\",\"profileName\":\"" + json(name)

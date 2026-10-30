@@ -75,7 +75,7 @@ public final class Dialogs {
         WindowBackground.dim(d);
         d.pack();
         center(d, parent);
-        d.setVisible(true);
+        Motion.present(d);
         if (retryFlag[0] && retry != null) retry.run();
         return retryFlag[0];
     }
@@ -95,7 +95,7 @@ public final class Dialogs {
         WindowBackground.dim(d);
         d.setSize(760, 460);
         d.setLocationRelativeTo(parent);
-        d.setVisible(true);
+        Motion.present(d);
     }
 
     /** Informational message with an optional action button. */
@@ -128,7 +128,7 @@ public final class Dialogs {
         WindowBackground.dim(d);
         d.pack();
         center(d, parent);
-        d.setVisible(true);
+        Motion.present(d);
         return res[0];
     }
 
@@ -181,7 +181,7 @@ public final class Dialogs {
         WindowBackground.dim(d);
         d.pack();
         center(d, parent);
-        d.setVisible(true);
+        Motion.present(d);
         if (pickOwn[0]) {
             d.dispose();
             return Utils.chooseDirectory(parent, "Выберите папку");
@@ -208,7 +208,7 @@ public final class Dialogs {
         tw.pack();
         Point p = anchor.getLocationOnScreen();
         tw.setLocation(p.x + anchor.getWidth() - tw.getWidth() - 18, p.y + 64);
-        tw.setVisible(true);
+        Motion.present(tw);
         Timer t = new Timer(6000, e -> {
             tw.dispose();
             shownToasts.remove(message);

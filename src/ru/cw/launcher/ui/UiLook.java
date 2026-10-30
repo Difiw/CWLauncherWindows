@@ -11,7 +11,7 @@ import java.awt.image.BufferedImage;
 public final class UiLook {
 
     private static volatile boolean blur = true;
-    private static volatile boolean anim = true;
+    private static volatile boolean anim;
     private static volatile boolean transitions;
     private static volatile boolean compact;
     private static volatile boolean showFps;
@@ -25,7 +25,7 @@ public final class UiLook {
 
     public static void apply(Settings cfg) {
         boolean effects = cfg == null || cfg.uiEffects;
-        preview(effects, cfg == null || cfg.uiBlur, cfg == null || cfg.uiAnim,
+        preview(effects, cfg == null || cfg.uiBlur, cfg != null && cfg.uiAnim,
                 cfg != null && cfg.uiTransitions, cfg != null && "compact".equals(cfg.uiStyle),
                 cfg != null && cfg.showFps);
         notes = cfg == null || cfg.notificationsEnabled;

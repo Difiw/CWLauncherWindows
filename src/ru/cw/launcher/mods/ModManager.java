@@ -71,6 +71,11 @@ public final class ModManager {
         return version;
     }
 
+    /** Version.txt из уже скачанного modsCWL.zip. Сеть не нужна. */
+    public String cachedZipVersion() {
+        return readModsVersionZip(Paths.cache().resolve(ZIP_NAME));
+    }
+
     /** Версия установленной сборки: из build-state.json, иначе из version.txt в папке модов. */
     public String installedBuildVersion(String instanceId) {
         BuildState s = readState(instanceId);
@@ -206,7 +211,16 @@ public final class ModManager {
                     manifestHash(working), moved);
             if (retired != null) deleteRetired(retired);
             Log.info("Папка модов очищена, установлено файлов: " + moved);
-            Utils.deleteQuietly(Paths.tmp().resolve(ZIP_NAME));
+            Path tmpZip = Paths.tmp().resolve(ZIP_NAME);
+            try {
+                // В кэше должен лежать установленный архив, иначе при запуске версия возьмётся из старого.
+                Files.createDirectories(Paths.cache());
+                Files.move(tmpZip, Paths.cache().resolve(ZIP_NAME),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException e) {
+                Log.debug("Архив модов не перенесён в кэш: " + Log.reason(e));
+                Utils.deleteQuietly(tmpZip);
+            }
         });
         op.add("Проверка установленной сборки", 1, () -> {
             List<String> problems = new ModVerifier().verify(cfg).problems();

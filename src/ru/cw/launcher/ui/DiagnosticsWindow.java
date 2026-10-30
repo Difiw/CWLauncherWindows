@@ -125,7 +125,7 @@ public final class DiagnosticsWindow {
         buttons.add(close);
         d.add(buttons, BorderLayout.SOUTH);
         WindowBackground.dim(d);
-        d.setVisible(true);
+        Motion.present(d);
         run.doClick();
     }
 

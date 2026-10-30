@@ -29,7 +29,7 @@ if ($LASTEXITCODE -ne 0) { throw "jar не собран" }
 $stage = Join-Path $root "_jpackage"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 & $jpackage --type app-image --name CWLauncher --input $dist --main-jar CWLauncher.jar `
-  --main-class ru.cw.launcher.Main --icon $icon --dest $stage --app-version 3.5.12 `
+  --main-class ru.cw.launcher.Main --icon $icon --dest $stage --app-version 3.6.7 `
   --vendor "CWLauncher" --description "CWLauncher" `
   --java-options "-Dfile.encoding=UTF-8" --java-options "-Xms64m" --java-options "-Xmx512m" `
   --java-options "-XX:+UseG1GC" --java-options "-XX:+UseStringDeduplication" --java-options "-XX:MaxGCPauseMillis=50" `

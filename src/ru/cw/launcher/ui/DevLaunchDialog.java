@@ -161,7 +161,7 @@ public final class DevLaunchDialog {
         WindowBackground.dim(d);
         d.pack();
         d.setLocationRelativeTo(parent);
-        d.setVisible(true);
+        Motion.present(d);
         return result[0];
     }
 

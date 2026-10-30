@@ -55,7 +55,7 @@ public final class ProfileWindow {
         };
         rebuild[0].run();
         WindowBackground.dim(d);
-        d.setVisible(true);
+        Motion.present(d);
         PlayerSkin.refresh(app.account());
         app.refreshState();
     }
@@ -182,6 +182,7 @@ public final class ProfileWindow {
                 return;
             }
             app.accounts().remove(a.id);
+            if (app.account() != null) app.selectAccountForProfile(app.account().id);
             PlayerSkin.refresh(app.account());
             rebuild.run();
         }));
@@ -224,8 +225,7 @@ public final class ProfileWindow {
             for (Account a : app.accounts().all()) {
                 boolean on = active != null && a.id.equals(active.id);
                 rows.add(accountRow(a, on, () -> {
-                    app.accounts().setActive(a.id);
-                    PlayerSkin.refresh(a);
+                    app.selectAccountForProfile(a.id);
                     rebuild.run();
                 }));
                 rows.add(Box.createVerticalStrut(6));
@@ -272,10 +272,12 @@ public final class ProfileWindow {
                 Dialogs.info(box, Lang.t("prof_nick_bad"));
                 return;
             }
-            if (app.accounts().addOffline(name) == null) {
+            Account created = app.accounts().addOffline(name);
+            if (created == null) {
                 Dialogs.info(box, Lang.t("prof_nick_bad"));
                 return;
             }
+            app.selectAccountForProfile(created.id);
             box.dispose();
             PlayerSkin.refresh(app.account());
             rebuild.run();
@@ -306,7 +308,7 @@ public final class ProfileWindow {
         box.pack();
         box.setSize(Math.max(box.getWidth(), 420), box.getHeight() + 12);
         box.setLocationRelativeTo(owner);
-        box.setVisible(true);
+        Motion.present(box);
     }
 
     private static void rename(JDialog owner, LauncherApp app, Account a, Runnable rebuild) {
@@ -348,24 +350,94 @@ public final class ProfileWindow {
         box.pack();
         box.setSize(Math.max(box.getWidth(), 360), box.getHeight() + 8);
         box.setLocationRelativeTo(owner);
-        box.setVisible(true);
+        Motion.present(box);
     }
 
     private static void pickSkin(JDialog owner, LauncherApp app, Account a, Runnable rebuild) {
-        Frame frame = owner.getOwner() instanceof Frame f ? f : null;
-        FileDialog dialog = new FileDialog(frame, Lang.t("prof_avatar"), FileDialog.LOAD);
-        dialog.setFile("*.png;*.jpg;*.jpeg");
-        dialog.setVisible(true);
-        if (dialog.getFile() == null) return;
-        Path src = Path.of(dialog.getDirectory(), dialog.getFile());
-        try {
-            PlayerSkin.assign(a, src);
-        } catch (Exception ex) {
-            Dialogs.error(owner, "Скин не сохранён.", ex.getMessage(), null);
-            return;
-        }
-        PlayerSkin.refresh(a);
-        rebuild.run();
+        JDialog box = child(owner, "Скины профиля " + a.username);
+        box.setLayout(new BorderLayout(0, 10));
+        DefaultListModel<PlayerSkin.SkinEntry> model = new DefaultListModel<>();
+        JList<PlayerSkin.SkinEntry> list = new JList<>(model);
+        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        list.setFixedCellHeight(42);
+        list.setBackground(new Color(0x0B1728));
+        list.setForeground(Color.WHITE);
+        list.setSelectionBackground(new Color(0x234C82));
+        list.setCellRenderer((view, value, index, selected, focus) -> {
+            JLabel label = new JLabel((value.selected() ? "✓  " : "   ") + value.name());
+            label.setOpaque(true);
+            label.setBorder(BorderFactory.createEmptyBorder(6, 10, 6, 10));
+            label.setBackground(selected ? new Color(0x234C82) : new Color(0x0B1728));
+            label.setForeground(value.selected() ? Theme.GREEN : Color.WHITE);
+            label.setToolTipText(value.file().toString());
+            return label;
+        });
+        Runnable reload = () -> {
+            model.clear();
+            for (PlayerSkin.SkinEntry skin : PlayerSkin.all(a)) model.addElement(skin);
+            if (!model.isEmpty()) list.setSelectedIndex(0);
+        };
+        reload.run();
+
+        JButton add = SettingsChrome.pill("Добавить PNG", true);
+        JButton choose = SettingsChrome.pill("Выбрать", false);
+        JButton remove = SettingsChrome.pill("Удалить", false);
+        JButton close = SettingsChrome.pill(Lang.t("prof_back"), false);
+        add.addActionListener(e -> {
+            Frame frame = owner.getOwner() instanceof Frame f ? f : null;
+            FileDialog dialog = new FileDialog(frame, "Добавить скин Minecraft", FileDialog.LOAD);
+            dialog.setFile("*.png;*.jpg;*.jpeg");
+            dialog.setVisible(true);
+            if (dialog.getFile() == null) return;
+            try {
+                PlayerSkin.assign(a, Path.of(dialog.getDirectory(), dialog.getFile()));
+                reload.run();
+                rebuild.run();
+            } catch (Exception ex) {
+                Dialogs.error(box, "Скин не сохранён.", ex.getMessage(), null);
+            }
+        });
+        choose.addActionListener(e -> {
+            PlayerSkin.SkinEntry skin = list.getSelectedValue();
+            if (skin == null) return;
+            try {
+                PlayerSkin.choose(a, skin.file());
+                reload.run();
+                rebuild.run();
+            } catch (Exception ex) {
+                Dialogs.error(box, "Скин не выбран.", ex.getMessage(), null);
+            }
+        });
+        remove.addActionListener(e -> {
+            PlayerSkin.SkinEntry skin = list.getSelectedValue();
+            if (skin == null || !Dialogs.ask(box, "Удалить скин «" + skin.name() + "»?", "Удалить", Lang.t("cancel"))) return;
+            try {
+                PlayerSkin.remove(a, skin.file());
+                reload.run();
+                rebuild.run();
+            } catch (Exception ex) {
+                Dialogs.error(box, "Скин не удалён.", ex.getMessage(), null);
+            }
+        });
+        close.addActionListener(e -> box.dispose());
+        list.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) choose.doClick();
+            }
+        });
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        buttons.setOpaque(false);
+        buttons.add(add);
+        buttons.add(choose);
+        buttons.add(remove);
+        buttons.add(close);
+        JLabel hint = muted("У каждого профиля своя библиотека. Двойной клик выбирает скин для следующего запуска игры.");
+        box.add(hint, BorderLayout.NORTH);
+        box.add(new JScrollPane(list), BorderLayout.CENTER);
+        box.add(buttons, BorderLayout.SOUTH);
+        box.setSize(620, 430);
+        box.setLocationRelativeTo(owner);
+        Motion.present(box);
     }
 
     private static void loginEly(Component parent, LauncherApp app, Runnable rebuild) {
@@ -383,6 +455,7 @@ public final class ProfileWindow {
                 if (!r.ok()) {
                     Dialogs.error(parent, "Не удалось войти через Ely.by.", r.error(), null);
                 } else {
+                    if (app.accounts().active() != null) app.selectAccountForProfile(app.accounts().active().id);
                     Dialogs.info(parent, "Вход через Ely.by выполнен: " + r.username());
                 }
                 PlayerSkin.refresh(app.account());
@@ -429,7 +502,7 @@ public final class ProfileWindow {
         box.pack();
         box.setSize(Math.max(box.getWidth(), 460), box.getHeight() + 8);
         box.setLocationRelativeTo(parent);
-        box.setVisible(true);
+        Motion.present(box);
         return ok[0];
     }
 

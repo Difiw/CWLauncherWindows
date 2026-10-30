@@ -78,7 +78,10 @@ public final class UpdateChecker {
         return Utils.compareVersions(remote, installed) != 0;
     }
 
+    /** Лаунчер обновляется только на более новую версию: старая или равная в lVersion.txt — не обновление. */
     public static boolean launcherUpdateNeeded(String installed, String remote) {
-        return buildUpdateNeeded(installed, remote);
+        if (remote == null || remote.isBlank()) return false;
+        if (installed == null || installed.isBlank()) return true;
+        return Utils.compareVersions(remote, installed) > 0;
     }
 }

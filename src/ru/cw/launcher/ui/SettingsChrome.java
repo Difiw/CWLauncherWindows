@@ -194,15 +194,19 @@ public final class SettingsChrome {
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            float hot = Motion.hot(this);
+            Motion.lift(g2, hot * 0.6f);
+            RoundRectangle2D.Float face = new RoundRectangle2D.Float(0, 0, getWidth() - 1, getHeight() - 1, 12, 12);
             if (active) {
-                g2.setColor(TAB_ON);
-                g2.fill(new RoundRectangle2D.Float(0, 0, getWidth() - 1, getHeight() - 1, 12, 12));
+                g2.setColor(Motion.mix(TAB_ON, TAB_ON.brighter(), hot * 0.45f));
+                g2.fill(face);
             } else {
-                g2.setColor(TAB_OFF);
-                g2.fill(new RoundRectangle2D.Float(0, 0, getWidth() - 1, getHeight() - 1, 12, 12));
+                g2.setColor(Motion.mix(TAB_OFF, new Color(28, 70, 140, 230), hot));
+                g2.fill(face);
                 g2.setColor(new Color(0x23487A));
                 g2.draw(new RoundRectangle2D.Float(0.5f, 0.5f, getWidth() - 2, getHeight() - 2, 12, 12));
             }
+            Motion.sweep(g2, face, hot);
             g2.dispose();
             super.paintComponent(g);
         }
@@ -210,10 +214,13 @@ public final class SettingsChrome {
 
     public static final class Switch extends JComponent {
         private boolean on;
+        private float thumb;
+        private Timer glide;
         private final java.util.List<Runnable> listeners = new java.util.ArrayList<>();
 
         public Switch(boolean on) {
             this.on = on;
+            this.thumb = on ? 1f : 0f;
             setPreferredSize(new Dimension(46, 26));
             setMinimumSize(new Dimension(46, 26));
             setMaximumSize(new Dimension(46, 26));
@@ -233,8 +240,27 @@ public final class SettingsChrome {
         public void setOn(boolean on) {
             if (this.on == on) return;
             this.on = on;
-            repaint();
+            animate();
             for (Runnable r : listeners) r.run();
+        }
+
+        private void animate() {
+            if (glide != null) glide.stop();
+            if (!UiLook.anim()) {
+                thumb = on ? 1f : 0f;
+                repaint();
+                return;
+            }
+            glide = new Timer(16, e -> {
+                float target = on ? 1f : 0f;
+                thumb += (target - thumb) * 0.34f;
+                if (Math.abs(target - thumb) < 0.02f) {
+                    thumb = target;
+                    ((Timer) e.getSource()).stop();
+                }
+                repaint();
+            });
+            glide.start();
         }
 
         public void onChange(Runnable r) {
@@ -245,10 +271,10 @@ public final class SettingsChrome {
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(on ? TAB_ON : new Color(0x1A2C4E));
+            g2.setColor(Motion.mix(new Color(0x1A2C4E), TAB_ON, thumb));
             g2.fill(new RoundRectangle2D.Float(0, 2, 44, 22, 22, 22));
             g2.setColor(Color.WHITE);
-            int x = on ? 22 : 3;
+            int x = 3 + Math.round(19 * thumb);
             g2.fillOval(x, 4, 18, 18);
             g2.dispose();
         }

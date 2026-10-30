@@ -9,12 +9,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Имя файла UpdateV&lt;MAJOR&gt;.&lt;MINOR&gt;.&lt;PATCH&gt;.txt → заголовок «Обновление X.Y.Z».
+ * Имя файла UpdateV&lt;версия&gt;.txt → заголовок «Обновление &lt;версия&gt;».
+ * Версия — всё после заглавной V, с любым числом частей: 5.0.4, 5.0.4.1.
  * Другие имена не становятся записями истории.
  */
 public final class UpdateParser {
 
-    public static final Pattern NAME = Pattern.compile("^UpdateV(\\d+\\.\\d+\\.\\d+)\\.txt$");
+    public static final Pattern NAME = Pattern.compile("^UpdateV(\\d+(?:\\.\\d+)*)\\.txt$");
 
     public record Note(String fileName, String version, String title, String text) {
     }
@@ -22,7 +23,7 @@ public final class UpdateParser {
     private UpdateParser() {
     }
 
-    /** Версия из имени или null, если формат не UpdateVX.Y.Z.txt. */
+    /** Версия из имени или null, если формат не UpdateV&lt;версия&gt;.txt. */
     public static String versionOf(String fileName) {
         if (fileName == null) return null;
         Matcher m = NAME.matcher(fileName);

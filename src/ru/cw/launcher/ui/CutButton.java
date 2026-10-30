@@ -167,6 +167,12 @@ public class CutButton extends JButton {
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         int w = getWidth();
         int h = getHeight();
+        Motion.lift(g2, anim);
+        if (UiLook.anim() && getModel().isPressed()) {
+            g2.translate(w / 2.0, h / 2.0);
+            g2.scale(0.96, 0.96);
+            g2.translate(-w / 2.0, -h / 2.0);
+        }
         Shape s = shape(w - 1, h - 1);
 
         if (glow && isEnabled() && accent != Accent.GHOST) {
@@ -181,6 +187,7 @@ public class CutButton extends JButton {
         }
         g2.setColor(baseFill());
         g2.fill(s);
+        Motion.sweep(g2, s, anim);
         g2.setColor(lineColor());
         g2.setStroke(new BasicStroke(isEnabled() && accent == Accent.PRIMARY ? 1.6f : 1f));
         g2.draw(s);

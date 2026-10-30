@@ -211,6 +211,16 @@ public final class Theme {
                 g2.fillRoundRect(0, 0, fw, h, h, h);
                 g2.setColor(new Color(255, 255, 255, 36));
                 g2.fillRoundRect(0, 0, fw, Math.max(2, h / 2), h, h);
+                if (UiLook.anim()) {
+                    double t = (System.currentTimeMillis() % 1400) / 1400.0;
+                    float sx = (float) ((t * 1.5 - 0.25) * fw);
+                    Shape prev = g2.getClip();
+                    g2.clip(new java.awt.geom.RoundRectangle2D.Float(0, 0, fw, h, h, h));
+                    g2.setPaint(new GradientPaint(sx - 18, 0, new Color(255, 255, 255, 0),
+                            sx, 0, new Color(255, 255, 255, 150), true));
+                    g2.fillRect((int) sx - 20, 0, 40, h);
+                    g2.setClip(prev);
+                }
             }
             g2.setColor(new Color(0x30363d));
             g2.drawRoundRect(0, 0, w - 1, h - 1, h, h);

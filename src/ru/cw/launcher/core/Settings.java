@@ -102,7 +102,7 @@ public class Settings {
     public int modBackupCount = 5;
     public boolean uiEffects = true;
     public boolean uiBlur = true;
-    public boolean uiAnim = true;
+    public boolean uiAnim = false;
     public boolean uiTransitions = false;
     public String uiStyle = "standard";
     public boolean showFps = false;
