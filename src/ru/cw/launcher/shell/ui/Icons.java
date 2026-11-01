@@ -172,10 +172,32 @@ public final class Icons {
                 g.fill(new Ellipse2D.Double(8, 8, 8, 8));
             }
             case "hammer" -> {
-                g.draw(Kit.poly(3, 8, 11, 8, 11, 12, 3, 12));
-                g.draw(new Line2D.Double(7, 12, 7, 20));
-                g.draw(new Line2D.Double(15, 12, 21, 18));
-                g.draw(new Line2D.Double(11, 10, 18, 10));
+                // Молоток под 45°: залитая рукоять и боёк с гвоздодёром.
+                Graphics2D h = (Graphics2D) g.create();
+                h.rotate(Math.toRadians(-45), 12, 12);
+                h.fill(new RoundRectangle2D.Double(10.7, 9, 2.6, 13, 2.6, 2.6));
+                Path2D head = new Path2D.Double();
+                head.moveTo(4.5, 4.5);
+                head.lineTo(16, 4.5);
+                head.curveTo(18.5, 4.5, 20, 5.5, 20.5, 7.5);
+                head.lineTo(16, 9.5);
+                head.lineTo(4.5, 9.5);
+                head.closePath();
+                h.fill(head);
+                h.dispose();
+            }
+            case "globe" -> {
+                g.draw(new Ellipse2D.Double(3, 3, 18, 18));
+                g.draw(new Ellipse2D.Double(8, 3, 8, 18));
+                g.draw(new Line2D.Double(3.5, 12, 20.5, 12));
+                g.draw(new Line2D.Double(5, 7.5, 19, 7.5));
+                g.draw(new Line2D.Double(5, 16.5, 19, 16.5));
+            }
+            case "key" -> {
+                g.draw(new Ellipse2D.Double(3, 9, 8, 8));
+                g.draw(new Line2D.Double(11, 13, 21, 13));
+                g.draw(new Line2D.Double(17, 13, 17, 16.5));
+                g.draw(new Line2D.Double(20, 13, 20, 15.5));
             }
             case "cut" -> {
                 g.draw(new Ellipse2D.Double(3, 3, 18, 18));

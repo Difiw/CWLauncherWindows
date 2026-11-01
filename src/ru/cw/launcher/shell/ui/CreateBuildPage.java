@@ -166,7 +166,7 @@ public final class CreateBuildPage extends JPanel {
             protected void paintComponent(Graphics g0) {
                 Graphics2D g = (Graphics2D) g0.create();
                 Kit.quality(g);
-                g.setColor(hover ? new Color(0x262830) : new Color(0x1B1C22));
+                g.setColor(hover ? Kit.HOVER_HI : Kit.HOVER);
                 g.fill(new RoundRectangle2D.Float(0, 0, 44, 44, 12, 12));
                 g.setColor(Kit.LINE);
                 g.draw(new RoundRectangle2D.Float(0.5f, 0.5f, 43, 43, 12, 12));
@@ -449,7 +449,7 @@ public final class CreateBuildPage extends JPanel {
             boolean on = spec.kind == k;
             int w = getWidth();
             int h = getHeight();
-            g.setColor(on ? new Color(0x2A1116) : hover ? new Color(0x1E2027) : Kit.FIELD);
+            g.setColor(on ? Kit.ACCENT_DIM : hover ? new Color(0x1E2027) : Kit.FIELD);
             g.fill(new RoundRectangle2D.Float(0, 0, w, h, 14, 14));
             g.setColor(on ? Kit.ACCENT : Kit.LINE);
             g.setStroke(new BasicStroke(on ? 1.6f : 1f));
@@ -529,7 +529,7 @@ public final class CreateBuildPage extends JPanel {
             g.setColor(Kit.LINE);
             g.draw(new RoundRectangle2D.Float(0.5f, 0.5f, w - 1, h - 1, 16, 16));
             pencil.setBounds(w - 46, h - 46, 34, 34);
-            g.setColor(new Color(0x1B1C22));
+            g.setColor(Kit.HOVER);
             g.fill(new RoundRectangle2D.Float(pencil.x, pencil.y, 34, 34, 10, 10));
             g.setColor(Kit.LINE);
             g.draw(new RoundRectangle2D.Float(pencil.x + 0.5f, pencil.y + 0.5f, 33, 33, 10, 10));

@@ -29,7 +29,7 @@ import static ru.cw.launcher.ui.SettingsKit.s;
  */
 final class Shell extends JPanel {
 
-    enum Target {HOME, NEWS, SERVERS, PROFILE, SETTINGS, VERSIONS}
+    enum Target {HOME, NEWS, BUILDS, SERVERS, PROFILE, SETTINGS, VERSIONS}
 
     private final MainWindow mw;
     private final LauncherApp app;
@@ -182,6 +182,7 @@ final class Shell extends JPanel {
     private final class SideNav extends JPanel {
         private final NavItem home = new NavItem(Tr.t("Главная", "Home"), Glyph.HOME, 20f, 30);
         private final NavItem news = new NavItem(Tr.t("Новости", "News"), Glyph.NEWS, 20f, 30);
+        private final NavItem buildsNav = new NavItem(Tr.t("Сборки", "Builds"), Glyph.LAYERS, 20f, 30);
         private final NavItem servers = new NavItem(Tr.t("Серверы", "Servers"), Glyph.SERVERS, 20f, 30);
         private final NavItem profile = new NavItem(Tr.t("Профиль", "Profile"), Glyph.USER, 20f, 30);
         private final NavItem settings = new NavItem(Tr.t("Настройки", "Settings"), Glyph.GEAR, 20f, 30);
@@ -198,6 +199,7 @@ final class Shell extends JPanel {
             setOpaque(false);
             home.addActionListener(e -> mw.navigate(mw::showHome));
             news.addActionListener(e -> mw.navigate(mw::openNews));
+            buildsNav.addActionListener(e -> mw.navigate(mw::openBuilds));
             servers.addActionListener(e -> mw.navigate(mw::openServers));
             profile.addActionListener(e -> mw.navigate(mw::openProfile));
             settings.addActionListener(e -> mw.openSettings(0));
@@ -205,7 +207,7 @@ final class Shell extends JPanel {
             telegram.addActionListener(e -> mw.openUrl(app.cfg.telegramUrl));
             discord.addActionListener(e -> mw.openUrl(app.cfg.discordUrl));
             support.addActionListener(e -> mw.openUrl(app.cfg.supportUrl));
-            for (JComponent c : new JComponent[]{home, news, servers, profile, settings, site, telegram, discord, support, account}) {
+            for (JComponent c : new JComponent[]{home, news, buildsNav, servers, profile, settings, site, telegram, discord, support, account}) {
                 add(c);
             }
             logo = loadLogo();
@@ -215,6 +217,7 @@ final class Shell extends JPanel {
         void setActive(Target t) {
             home.setActive(t == Target.HOME);
             news.setActive(t == Target.NEWS);
+            buildsNav.setActive(t == Target.BUILDS);
             servers.setActive(t == Target.SERVERS);
             profile.setActive(t == Target.PROFILE);
             settings.setActive(t == Target.SETTINGS);
@@ -305,7 +308,7 @@ final class Shell extends JPanel {
             int y = logoBottom() + (tight ? s(8) : s(20));
             int step = tight ? s(60) : s(70);
             int ih = tight ? s(52) : s(60);
-            for (NavItem item : new NavItem[]{home, news, servers, profile, settings}) {
+            for (NavItem item : new NavItem[]{home, news, buildsNav, servers, profile, settings}) {
                 if (!item.isVisible()) continue;
                 item.setBounds(s(16), y, w - s(32), ih);
                 y += step;

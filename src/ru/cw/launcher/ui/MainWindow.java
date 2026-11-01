@@ -37,6 +37,7 @@ public class MainWindow extends JFrame {
     private SettingsWindow.Page settingsPage;
     private NewsPage newsPage;
     private ServersPage serversPage;
+    private JComponent buildsPage;
     private SkinEditorPage skinEditorPage;
     private OperationWindow operationWindow;
     private final AWTEventListener frameMouse;
@@ -112,6 +113,7 @@ public class MainWindow extends JFrame {
         Lang.use(app.cfg.resolvedLanguage());
         if (settingsPage != null) settingsPage.dispose();
         settingsPage = null;
+        buildsPage = null;
         shell = new Shell(this, app);
         home = new HomePage(this, app);
         setContentPane(shell);
@@ -209,6 +211,29 @@ public class MainWindow extends JFrame {
         }
         serversPage = new ServersPage(this, app);
         shell.setPage(serversPage, Shell.Target.SERVERS);
+    }
+
+    /**
+     * «Сборки» — интерфейс сборок (v3) страницей оболочки. Создаётся один раз и живёт до пересборки
+     * окна: начатая установка модов и открытая вкладка не теряются при переходах по меню.
+     */
+    void openBuilds() {
+        skinEditorPage = null;
+        dropNews();
+        if (settingsPage != null) {
+            settingsPage.dispose();
+            settingsPage = null;
+        }
+        if (buildsPage == null) {
+            ru.cw.launcher.shell.ui.Kit.useLauncherTheme(SettingsKit.ACCENT, SettingsKit.ACTIVE_2,
+                    SettingsKit.TEXT, SettingsKit.MUTED);
+            java.nio.file.Path root = Paths.root();
+            ru.cw.launcher.shell.ShellPrefs prefs = new ru.cw.launcher.shell.ShellPrefs(root.resolve("shell.json"));
+            prefs.load();
+            buildsPage = ru.cw.launcher.shell.ui.ShellWindow.embedded(
+                    new ru.cw.launcher.shell.BuildStore(root.resolve("builds")), prefs);
+        }
+        shell.setPage(buildsPage, Shell.Target.BUILDS);
     }
 
     /** Уведомления о входе и выходе игроков на локальных серверах — по настройкам. */

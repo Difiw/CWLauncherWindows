@@ -30,6 +30,30 @@ public final class Kit {
     public static Color ACCENT_HI = new Color(0xEC4854);
     public static Color ACCENT_DIM = new Color(0x3A1318);
     public static Color GREEN = new Color(0x4CD97B);
+    /** Фон кнопок и строк под мышью, ярче — для нажатых, фон выпадающих списков. */
+    public static Color HOVER = new Color(0x1B1C22);
+    public static Color HOVER_HI = new Color(0x23252D);
+    public static Color MENU = new Color(0x181A20);
+
+    /**
+     * Цвета основного лаунчера: страница «Сборки» встроена в его окно и не должна
+     * выделяться красной темой отдельного интерфейса v3.
+     */
+    public static void useLauncherTheme(Color accent, Color accentDim, Color text, Color muted) {
+        BG = new Color(0x0D1621);
+        SIDEBAR = new Color(0x101B27);
+        CARD = new Color(0x121D29);
+        FIELD = new Color(0x16222F);
+        LINE = new Color(0x1E2B3B);
+        TEXT = text;
+        MUTED = muted;
+        ACCENT = accent;
+        ACCENT_HI = accent.brighter();
+        ACCENT_DIM = accentDim;
+        HOVER = new Color(0x1B2836);
+        HOVER_HI = new Color(0x223244);
+        MENU = new Color(0x131E2A);
+    }
 
     public static final String FAMILY = family();
 
@@ -178,7 +202,7 @@ public final class Kit {
             int w = getWidth();
             int h = getHeight();
             Color bg = primary ? (press ? ACCENT.darker() : hover ? ACCENT_HI : ACCENT)
-                    : (hover ? new Color(0x23252D) : new Color(0x1B1C22));
+                    : (hover ? HOVER_HI : HOVER);
             if (!enabled) bg = new Color(0x2A2B31);
             g.setColor(bg);
             g.fill(new RoundRectangle2D.Float(0, 0, w, h, 14, 14));
@@ -268,15 +292,15 @@ public final class Kit {
             if (items.isEmpty()) return;
             JPopupMenu menu = new JPopupMenu();
             menu.setBorder(BorderFactory.createLineBorder(LINE));
-            menu.setBackground(new Color(0x181A20));
+            menu.setBackground(MENU);
             JPanel list = new JPanel();
             list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
-            list.setBackground(new Color(0x181A20));
+            list.setBackground(MENU);
             for (String it : items) list.add(menuRow(it, menu));
             JScrollPane sp = new JScrollPane(list, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
                     ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
             sp.setBorder(null);
-            sp.getViewport().setBackground(new Color(0x181A20));
+            sp.getViewport().setBackground(MENU);
             sp.getVerticalScrollBar().setUnitIncrement(18);
             style(sp.getVerticalScrollBar());
             int rows = Math.min(items.size(), 8);
@@ -343,7 +367,7 @@ public final class Kit {
                     Graphics2D g = (Graphics2D) g0.create();
                     quality(g);
                     if (over) {
-                        g.setColor(new Color(0x262830));
+                        g.setColor(HOVER_HI);
                         g.fillRect(0, 0, getWidth(), getHeight());
                     }
                     g.setFont(Dropdown.this.getFont());
@@ -500,7 +524,7 @@ public final class Kit {
             quality(g);
             int w = getWidth();
             int h = getHeight();
-            g.setColor(on ? ACCENT : hover ? new Color(0x23252D) : new Color(0x1B1C22));
+            g.setColor(on ? ACCENT : hover ? HOVER_HI : HOVER);
             g.fill(new RoundRectangle2D.Float(0, 0, w, h, h, h));
             if (!on) {
                 g.setColor(LINE);

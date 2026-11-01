@@ -135,7 +135,7 @@ public final class BuildsPage extends JPanel {
             Graphics2D g = (Graphics2D) g0.create();
             Kit.quality(g);
             int w = getWidth();
-            g.setPaint(new GradientPaint(0, 0, new Color(0x6A2F9E), 70, 70, new Color(0xD5323E)));
+            g.setPaint(new GradientPaint(0, 0, Kit.ACCENT_DIM, 70, 70, Kit.ACCENT));
             g.fill(new RoundRectangle2D.Float(18, 16, 64, 64, 16, 16));
             Icons.draw(g, "cube", 33, 31, 34, Color.WHITE);
             g.setFont(Kit.font(Font.BOLD, 17));
@@ -159,7 +159,7 @@ public final class BuildsPage extends JPanel {
             folder.setBounds(w - 108, 28, 40, 40);
             trash.setBounds(w - 58, 28, 40, 40);
             for (Rectangle r : new Rectangle[]{folder, trash}) {
-                g.setColor(new Color(0x1B1C22));
+                g.setColor(Kit.HOVER);
                 g.fill(new RoundRectangle2D.Float(r.x, r.y, 40, 40, 12, 12));
                 g.setColor(Kit.LINE);
                 g.draw(new RoundRectangle2D.Float(r.x + 0.5f, r.y + 0.5f, 39, 39, 12, 12));

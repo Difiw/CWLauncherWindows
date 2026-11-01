@@ -56,7 +56,7 @@ public final class BrowsePanel extends Kit.Round {
     private String query = "";
 
     private final JPanel tabs = Kit.clear(new GridLayout(1, 3, 6, 0));
-    private final Kit.Dropdown providerBox = new Kit.Dropdown("hammer");
+    private final Kit.Dropdown providerBox = new Kit.Dropdown("globe");
     private final JTextField search = new JTextField();
     private final JPanel chips = Kit.clear(new FlowLayout(FlowLayout.LEFT, 8, 0));
     private final JPanel list = new JPanel();
@@ -197,7 +197,7 @@ public final class BrowsePanel extends Kit.Round {
             int w = getWidth();
             int h = getHeight();
             if (on) {
-                g.setColor(new Color(0x3A1318));
+                g.setColor(Kit.ACCENT_DIM);
                 g.fill(new RoundRectangle2D.Float(0, 0, w, h, 11, 11));
                 g.setColor(Kit.ACCENT);
                 g.draw(new RoundRectangle2D.Float(0.5f, 0.5f, w - 1, h - 1, 11, 11));
@@ -326,7 +326,7 @@ public final class BrowsePanel extends Kit.Round {
             protected void paintComponent(Graphics g0) {
                 Graphics2D g = (Graphics2D) g0.create();
                 Kit.quality(g);
-                g.setColor(on ? new Color(0x3A1318) : new Color(0x1B1C22));
+                g.setColor(on ? Kit.ACCENT_DIM : Kit.HOVER);
                 g.fill(new RoundRectangle2D.Float(0, 0, 36, 36, 11, 11));
                 g.setColor(on ? Kit.ACCENT : Kit.LINE);
                 g.draw(new RoundRectangle2D.Float(0.5f, 0.5f, 35, 35, 11, 11));
@@ -359,7 +359,7 @@ public final class BrowsePanel extends Kit.Round {
             protected void paintComponent(Graphics g0) {
                 Graphics2D g = (Graphics2D) g0.create();
                 Kit.quality(g);
-                g.setColor(new Color(0x1B1C22));
+                g.setColor(Kit.HOVER);
                 g.fill(new RoundRectangle2D.Float(0, 0, 36, 36, 11, 11));
                 g.setColor(Kit.LINE);
                 g.draw(new RoundRectangle2D.Float(0.5f, 0.5f, 35, 35, 11, 11));

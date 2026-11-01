@@ -48,30 +48,73 @@ public final class ShellWindow extends JPanel {
     }
 
     public ShellWindow(BuildStore store, ShellPrefs prefs, CoreCatalog catalog, ContentSource content) {
+        this(store, prefs, catalog, content, false);
+    }
+
+    /** Страница «Сборки» внутри основного лаунчера: без своего меню, вкладки сверху. */
+    public static ShellWindow embedded(BuildStore store, ShellPrefs prefs) {
+        return new ShellWindow(store, prefs, new CoreCatalog(), new ContentSource(), true);
+    }
+
+    private final boolean embedded;
+
+    private ShellWindow(BuildStore store, ShellPrefs prefs, CoreCatalog catalog, ContentSource content, boolean embedded) {
         super(new BorderLayout());
         this.store = store;
         this.prefs = prefs;
         this.catalog = catalog;
         this.content = content;
+        this.embedded = embedded;
         ContentSource.keyOverride = prefs.curseKey;
         setBackground(Kit.BG);
-        add(sidebar(), BorderLayout.WEST);
-        body.setBorder(new EmptyBorder(16, 20, 14, 20));
+        setOpaque(!embedded);
+        builds = new BuildsPage(store, () -> show("create"));
+        if (embedded) {
+            // Главная, аккаунты и настройки уже есть в лаунчере — здесь только сборки и каталог.
+            add(tabs(), BorderLayout.NORTH);
+            body.setBorder(new EmptyBorder(10, 20, 16, 20));
+        } else {
+            add(sidebar(), BorderLayout.WEST);
+            body.setBorder(new EmptyBorder(16, 20, 14, 20));
+            body.add(homePage(), "home");
+        }
         add(body, BorderLayout.CENTER);
 
-        builds = new BuildsPage(store, () -> show("create"));
-        body.add(homePage(), "home");
         body.add(builds, "builds");
         body.add(browsePage("Моды", "Моды для Minecraft: Modrinth и CurseForge.", ContentSource.Kind.MOD), "mods");
         body.add(browsePage("Карты", "Карты и приключения.", ContentSource.Kind.MAP), "maps");
         body.add(browsePage("Ресурспаки", "Текстуры и оформление.", ContentSource.Kind.RESOURCEPACK), "packs");
-        body.add(accountsPage(), "accounts");
-        body.add(settingsPage(), "settings");
-        show("home");
+        if (!embedded) {
+            body.add(accountsPage(), "accounts");
+            body.add(settingsPage(), "settings");
+        }
+        show(embedded ? "builds" : "home");
+    }
+
+    /**
+     * Вкладки встроенного режима. Заголовок у каждой вкладки свой. Отступ сверху оставляет место
+     * под кнопки окна и плашку сервера справа, чтобы кнопки страниц на них не наезжали.
+     */
+    private JComponent tabs() {
+        JPanel top = Kit.clear(new BorderLayout());
+        top.setBorder(new EmptyBorder(50, 20, 0, 20));
+        JPanel row = Kit.clear(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        for (String[] n : NAV) {
+            if (!java.util.Set.of("builds", "mods", "maps", "packs").contains(n[0])) continue;
+            NavItem item = new NavItem(n[0], n[1], n[2]);
+            FontMetrics fm = item.getFontMetrics(Kit.font(Font.BOLD, 16));
+            item.setPreferredSize(new Dimension(fm.stringWidth(n[1]) + 76, 46));
+            navItems.add(item);
+            row.add(item);
+            row.add(Kit.hgap(8));
+        }
+        top.add(row, BorderLayout.CENTER);
+        return top;
     }
 
     @Override
     protected void paintComponent(Graphics g) {
+        if (embedded) return;
         g.setColor(Kit.BG);
         g.fillRect(0, 0, getWidth(), getHeight());
     }
@@ -226,12 +269,12 @@ public final class ShellWindow extends JPanel {
             int w = getWidth();
             int h = getHeight();
             if (active) {
-                g.setColor(new Color(0x3A1318));
+                g.setColor(Kit.ACCENT_DIM);
                 g.fill(new RoundRectangle2D.Float(0, 0, w, h, 14, 14));
                 g.setColor(Kit.ACCENT);
                 g.draw(new RoundRectangle2D.Float(0.5f, 0.5f, w - 1, h - 1, 14, 14));
             } else if (hover) {
-                g.setColor(new Color(0x1B1C22));
+                g.setColor(Kit.HOVER);
                 g.fill(new RoundRectangle2D.Float(0, 0, w, h, 14, 14));
             }
             Icons.draw(g, icon, 16, (h - 24) / 2, 24, active ? Kit.ACCENT_HI : Kit.TEXT);
@@ -258,7 +301,7 @@ public final class ShellWindow extends JPanel {
                 super.paintComponent(g0);
                 Graphics2D g = (Graphics2D) g0.create();
                 Kit.quality(g);
-                g.setPaint(new GradientPaint(0, 0, new Color(0x00000000, true), getWidth(), 0, new Color(0x40D5323E, true)));
+                g.setPaint(new GradientPaint(0, 0, new Color(0x00000000, true), getWidth(), 0, new Color(Kit.ACCENT.getRed(), Kit.ACCENT.getGreen(), Kit.ACCENT.getBlue(), 0x40)));
                 g.fill(new RoundRectangle2D.Float(1, 1, getWidth() - 2, getHeight() - 2, 20, 20));
                 g.dispose();
             }
@@ -342,7 +385,7 @@ public final class ShellWindow extends JPanel {
         JLabel msg = Kit.label(" ", Font.PLAIN, 13, Kit.MUTED);
         form.add(left(Kit.label("Ключ CurseForge API (необязательно)", Font.BOLD, 14, Kit.TEXT)));
         form.add(Kit.vgap(6));
-        JComponent f = Kit.field(key, "hammer");
+        JComponent f = Kit.field(key, "key");
         f.setMaximumSize(new Dimension(520, 44));
         f.setPreferredSize(new Dimension(520, 44));
         form.add(left(f));
