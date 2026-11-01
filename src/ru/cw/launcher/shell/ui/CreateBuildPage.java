@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** Экран «Создание сборки»: форма слева, каталог модов справа. */
 public final class CreateBuildPage extends JPanel {
 
-    private static final ExecutorService IO = Executors.newSingleThreadExecutor(r -> {
+    private static final ExecutorService IO = Executors.newFixedThreadPool(3, r -> {
         Thread t = new Thread(r, "cw-core-catalog");
         t.setDaemon(true);
         return t;
@@ -116,6 +116,11 @@ public final class CreateBuildPage extends JPanel {
     }
 
     private void refreshCore() {
+        refreshCore(0);
+    }
+
+    /** attempt — сколько раз уже не ответила сеть; три автоповтора с паузой, потом подсказка. */
+    private void refreshCore(int attempt) {
         int gen = coreGen.incrementAndGet();
         String l = spec.loader;
         String v = spec.mcVersion;
@@ -125,6 +130,22 @@ public final class CreateBuildPage extends JPanel {
             List<String> versions = catalog.coreVersions(l, v);
             SwingUtilities.invokeLater(() -> {
                 if (gen != coreGen.get()) return;
+                if (versions == null) {
+                    spec.loaderVersion = "";
+                    if (attempt < 3) {
+                        core.select("загрузка… (попытка " + (attempt + 2) + ")");
+                        javax.swing.Timer t = new javax.swing.Timer(2500, e -> {
+                            if (gen == coreGen.get()) refreshCore(attempt + 1);
+                        });
+                        t.setRepeats(false);
+                        t.start();
+                    } else {
+                        core.select("нет сети — выберите заново");
+                        error.setText("Не удалось получить версии ядра: нет соединения. Смена загрузчика или версии повторит запрос.");
+                    }
+                    return;
+                }
+                error.setText(" ");
                 core.setItems(versions, null);
                 if (versions.isEmpty()) core.select("нет версий");
                 spec.loaderVersion = versions.isEmpty() ? "" : core.selected();
@@ -264,23 +285,33 @@ public final class CreateBuildPage extends JPanel {
         form.add(Kit.vgap(10));
 
         // 4) дополнительно
-        form.add(sectionTitle("Дополнительно", "gear"));
+        form.add(sectionTitle("Папка и память", "gear"));
         form.add(Kit.vgap(8));
         JPanel extra = Kit.clear(new GridLayout(1, 2, 24, 0));
-        JPanel checks = Kit.clear(null);
-        checks.setLayout(new BoxLayout(checks, BoxLayout.Y_AXIS));
-        Kit.Check opt = new Kit.Check("Оптимизированные настройки", spec.optimized);
-        opt.onToggle(v -> spec.optimized = v);
-        Kit.Check auto = new Kit.Check("Автообновление модов", spec.autoUpdateMods);
-        auto.onToggle(v -> spec.autoUpdateMods = v);
-        Kit.Check more = new Kit.Check("Выделить больше RAM", spec.moreRam);
-        more.onToggle(v -> spec.moreRam = v);
-        checks.add(opt);
-        checks.add(Kit.vgap(2));
-        checks.add(auto);
-        checks.add(Kit.vgap(2));
-        checks.add(more);
-        extra.add(checks);
+        // Папка игры: своя (например, существующая) или новая внутри лаунчера.
+        JPanel dirBox = Kit.clear(new BorderLayout(0, 6));
+        dirBox.add(Kit.label("Папка игры", Font.PLAIN, 14, Kit.TEXT), BorderLayout.NORTH);
+        JTextField dirField = new JTextField();
+        dirField.setEditable(false);
+        dirField.putClientProperty("JTextField.placeholderText", "Новая папка внутри лаунчера (рекомендуется)");
+        JComponent dirShown = Kit.field(dirField, "folder");
+        dirShown.setPreferredSize(new Dimension(10, 44));
+        dirBox.add(dirShown, BorderLayout.CENTER);
+        JPanel dirButtons = Kit.clear(new GridLayout(1, 2, 8, 0));
+        dirButtons.add(new Kit.Btn("Выбрать папку", false, "folder", () -> {
+            java.nio.file.Path chosen = ru.cw.launcher.util.FolderPicker.choose(this, "Папка игры для сборки", spec.gameDir);
+            if (chosen == null) return;
+            spec.gameDir = chosen.toAbsolutePath().toString();
+            dirField.setText(spec.gameDir);
+            error.setText(" ");
+        }));
+        dirButtons.add(new Kit.Btn("Новая папка", false, null, () -> {
+            spec.gameDir = "";
+            dirField.setText("");
+        }));
+        dirButtons.setPreferredSize(new Dimension(10, 40));
+        dirBox.add(dirButtons, BorderLayout.SOUTH);
+        extra.add(dirBox);
 
         JPanel mem = Kit.clear(new BorderLayout(0, 2));
         JPanel memTop = Kit.clear(new BorderLayout());
@@ -297,7 +328,7 @@ public final class CreateBuildPage extends JPanel {
         mem.add(sliderRow, BorderLayout.CENTER);
         mem.add(Kit.label("Рекомендуется: 4–6 ГБ (из " + totalGb + " ГБ)", Font.PLAIN, 12, Kit.MUTED), BorderLayout.SOUTH);
         extra.add(mem);
-        extra.setMaximumSize(new Dimension(Integer.MAX_VALUE, 100));
+        extra.setMaximumSize(new Dimension(Integer.MAX_VALUE, 130));
         form.add(extra);
         ram.addChangeListener(e -> {
             spec.ramMb = ram.getValue() * 1024;
@@ -346,7 +377,7 @@ public final class CreateBuildPage extends JPanel {
         spec.name = name.getText();
         spec.description = desc.getText();
         spec.ramMb = ram.getValue() * 1024;
-        if ("загрузка…".equals(core.selected()) || "нет версий".equals(core.selected())) spec.loaderVersion = "";
+        if (core.selected().startsWith("загрузка") || core.selected().startsWith("нет ")) spec.loaderVersion = "";
         else spec.loaderVersion = core.selected();
         try {
             String err = host.tryCreate(spec);
@@ -490,11 +521,9 @@ public final class CreateBuildPage extends JPanel {
         }
 
         private void choose() {
-            JFileChooser fc = new JFileChooser();
-            fc.setDialogTitle("Картинка сборки");
-            fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Изображения", "png", "jpg", "jpeg"));
-            if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
-            File f = fc.getSelectedFile();
+            String picked = ru.cw.launcher.background.BackgroundManager.chooseImage(this);
+            if (picked == null) return;
+            File f = new File(picked);
             try {
                 BufferedImage img = javax.imageio.ImageIO.read(f);
                 if (img == null) throw new java.io.IOException("не изображение");

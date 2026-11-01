@@ -13,7 +13,39 @@ import java.util.Map;
 /** Каталог модов, карт и модпаков. Modrinth работает без ключа, CurseForge — с ключом CF_API_KEY. */
 public class ContentSource {
 
-    public enum Provider { MODRINTH, CURSEFORGE }
+    /**
+     * MCINSIDE — minecraft-inside.ru. API у сайта нет, а robots.txt запрещает программам поиск
+     * и скачивание. Поэтому лаунчер только читает разрешённые списки разделов, а скачивание и
+     * поиск открываются на самом сайте в браузере.
+     */
+    public enum Provider {
+        MODRINTH("Modrinth"), CURSEFORGE("CurseForge"), MCINSIDE("Minecraft Inside");
+
+        public final String title;
+
+        Provider(String title) {
+            this.title = title;
+        }
+
+        public static Provider byTitle(String t) {
+            for (Provider p : values()) if (p.title.equals(t)) return p;
+            return MODRINTH;
+        }
+
+        /** Можно ли поставить проект в сборку автоматически. */
+        public boolean installable() {
+            return this != MCINSIDE;
+        }
+    }
+
+    /** Подробности о проекте для экрана описания: текст и страница на сайте. */
+    public record Details(String text, String url) {
+    }
+
+    private static final String MCI = "https://minecraft-inside.ru";
+
+    /** Переводить ли описания проектов на русский. Задаёт лаунчер из настроек. */
+    public static volatile boolean translateToRussian;
 
     public enum Kind { MOD, MAP, MODPACK, RESOURCEPACK }
 
@@ -37,13 +69,163 @@ public class ContentSource {
     public static String curseKey() {
         if (keyOverride != null && !keyOverride.isBlank()) return keyOverride.trim();
         String k = System.getenv("CF_API_KEY");
-        return k == null ? "" : k.trim();
+        if (k != null && !k.isBlank()) return k.trim();
+        // Ключ проекта: файл curseforge.key рядом с лаунчером. Его кладёт разработчик один раз,
+        // и игрокам вводить ничего не нужно.
+        try {
+            java.nio.file.Path file = ru.cw.launcher.util.Paths.installRoot().resolve("curseforge.key");
+            if (java.nio.file.Files.isRegularFile(file)) {
+                String line = java.nio.file.Files.readString(file, StandardCharsets.UTF_8).lines().findFirst().orElse("");
+                return line.replace("﻿", "").trim();
+            }
+        } catch (IOException | RuntimeException ignored) {
+            // нет файла или он не читается: остаётся запрос ключа в окне каталога
+        }
+        return "";
     }
 
     public Page search(Provider provider, Kind kind, Sort sort, String query, int page)
             throws IOException, InterruptedException {
         if (provider == Provider.CURSEFORGE) return searchCurse(kind, sort, query, page);
-        return parseModrinth(Http.getBody(modrinthUrl(kind, sort, query, page)));
+        if (provider == Provider.MCINSIDE) {
+            return parseMcInside(Http.get(mcInsideUrl(kind, page), null, 12, 2).body());
+        }
+        return parseModrinth(Http.get(modrinthUrl(kind, sort, query, page), null, 12, 2).body());
+    }
+
+    /** Полное описание проекта. Для Minecraft Inside — краткое из списка: страницу открывает браузер. */
+    public Details details(Provider provider, Item item) throws IOException, InterruptedException {
+        switch (provider) {
+            case MODRINTH -> {
+                Map<String, Object> m = Json.parseObject(
+                        Http.get("https://api.modrinth.com/v2/project/" + enc(item.id()), null, 12, 2).body());
+                String type = Json.str(m, "project_type", "mod");
+                String url = "https://modrinth.com/" + type + "/" + Json.str(m, "slug", item.id());
+                String body = Json.str(m, "body", "");
+                return new Details(plainText(body.isBlank() ? Json.str(m, "description", item.summary()) : body), url);
+            }
+            case CURSEFORGE -> {
+                String key = curseKey();
+                if (key.isEmpty()) return new Details(item.summary(), "https://www.curseforge.com/minecraft");
+                String html = curseGet("https://api.curseforge.com/v1/mods/" + enc(item.id()) + "/description", key);
+                Map<String, Object> mod = Json.obj(Json.parseObject(
+                        curseGet("https://api.curseforge.com/v1/mods/" + enc(item.id()), key)), "data");
+                Map<String, Object> links = mod == null ? null : Json.obj(mod, "links");
+                String url = links == null ? "https://www.curseforge.com/minecraft" : Json.str(links, "websiteUrl", "");
+                return new Details(plainText(Json.str(Json.parseObject(html), "data", item.summary())), url);
+            }
+            default -> {
+                return new Details(item.summary(), item.id());
+            }
+        }
+    }
+
+    // ---- Minecraft Inside ----
+
+    public static String mcInsideUrl(Kind kind, int page) {
+        String section = switch (kind) {
+            case MOD -> "mods";
+            case MAP -> "maps";
+            case MODPACK -> "modpacks";
+            case RESOURCEPACK -> "resource-packs";
+        };
+        return MCI + "/" + section + "/" + (page > 1 ? "page/" + page + "/" : "");
+    }
+
+    /** Ссылка на поиск по сайту: открывается в браузере пользователя, программа её не читает. */
+    public static String mcInsideSearchUrl(String query) {
+        return MCI + "/search/?q=" + enc(query == null ? "" : query.trim());
+    }
+
+    private static final java.util.regex.Pattern MCI_POST = java.util.regex.Pattern.compile(
+            "<div class=\"box box_grass post[^\"]*\">(.*?)class=\"post__more\"", java.util.regex.Pattern.DOTALL);
+    private static final java.util.regex.Pattern MCI_TITLE = java.util.regex.Pattern.compile(
+            "<h2 class=\"box__title\"><a href=\"([^\"]+)\">([^<]+)</a>");
+    private static final java.util.regex.Pattern MCI_AUTHOR = java.util.regex.Pattern.compile(
+            "post__creator\">.*?<a [^>]*>([^<]+)</a>", java.util.regex.Pattern.DOTALL);
+    private static final java.util.regex.Pattern MCI_COVER = java.util.regex.Pattern.compile(
+            "class=\"post__cover\"><img[^>]*src=\"([^\"]+)\"[^>]*>\\s*</a>\\s*(?:<br\\s*/?>)?(.*?)</div>",
+            java.util.regex.Pattern.DOTALL);
+    private static final java.util.regex.Pattern MCI_VIEWS = java.util.regex.Pattern.compile(
+            "title=\"Просмотров: (\\d+)\"");
+    private static final java.util.regex.Pattern MCI_SCORE = java.util.regex.Pattern.compile(
+            "<span class=\"score\">(-?\\d+)</span>");
+    private static final java.util.regex.Pattern MCI_LAST = java.util.regex.Pattern.compile(
+            "href=\"/[a-z-]+/page/(\\d+)/\"");
+
+    /** Список раздела: id — полный адрес страницы проекта. */
+    public static Page parseMcInside(String html) {
+        List<Item> items = new ArrayList<>();
+        java.util.regex.Matcher post = MCI_POST.matcher(html);
+        while (post.find()) {
+            String block = post.group(1);
+            java.util.regex.Matcher t = MCI_TITLE.matcher(block);
+            if (!t.find()) continue;
+            String url = absolute(t.group(1));
+            String title = unescape(t.group(2)).trim();
+            java.util.regex.Matcher a = MCI_AUTHOR.matcher(block);
+            String author = a.find() ? unescape(a.group(1)).trim() : "";
+            String icon = "";
+            String summary = "";
+            java.util.regex.Matcher c = MCI_COVER.matcher(block);
+            if (c.find()) {
+                icon = absolute(c.group(1));
+                summary = plainText(c.group(2));
+            }
+            java.util.regex.Matcher v = MCI_VIEWS.matcher(block);
+            java.util.regex.Matcher s = MCI_SCORE.matcher(block);
+            items.add(new Item(url, title, author, summary, icon,
+                    v.find() ? Long.parseLong(v.group(1)) : 0, s.find() ? Long.parseLong(s.group(1)) : 0));
+        }
+        int last = 1;
+        java.util.regex.Matcher l = MCI_LAST.matcher(html);
+        while (l.find()) last = Math.max(last, Integer.parseInt(l.group(1)));
+        return new Page(items, last * Math.max(1, items.size()), Math.max(1, items.size()));
+    }
+
+    private static String absolute(String href) {
+        if (href.startsWith("http")) return href;
+        return MCI + (href.startsWith("/") ? "" : "/") + href;
+    }
+
+    /** HTML или Markdown описания в читаемый текст: без тегов, картинок и разметки ссылок. */
+    public static String plainText(String s) {
+        if (s == null) return "";
+        String t = s.replaceAll("(?is)<(script|style)[^>]*>.*?</\\1>", "")
+                .replaceAll("(?i)<br\\s*/?>", "\n")
+                .replaceAll("(?i)</(p|div|li|h[1-6])>", "\n")
+                .replaceAll("(?i)<li[^>]*>", "• ")
+                .replaceAll("<[^>]+>", "")
+                .replaceAll("!\\[[^]]*]\\([^)]*\\)", "")
+                .replaceAll("\\[([^]]*)]\\([^)]*\\)", "$1")
+                .replaceAll("(?m)^#{1,6}\\s*", "")
+                .replaceAll("\\*\\*|__|`", "");
+        t = unescape(t);
+        return t.replaceAll("[ \\t]+", " ").replaceAll("\\n\\s*\\n\\s*\\n+", "\n\n").trim();
+    }
+
+    private static String unescape(String s) {
+        return s.replace("&nbsp;", " ").replace("&quot;", "\"").replace("&#39;", "'").replace("&laquo;", "«")
+                .replace("&raquo;", "»").replace("&mdash;", "—").replace("&ndash;", "–").replace("&lt;", "<")
+                .replace("&gt;", ">").replace("&amp;", "&");
+    }
+
+    /** Клиент создаётся при первом запросе: сбой сети не должен ломать загрузку самого класса. */
+    private static final class Client {
+        static final java.net.http.HttpClient INSTANCE = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(java.time.Duration.ofSeconds(10))
+                .followRedirects(java.net.http.HttpClient.Redirect.NORMAL).build();
+    }
+
+    public static String curseGet(String url, String key) throws IOException, InterruptedException {
+        java.net.http.HttpRequest req = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url))
+                .timeout(java.time.Duration.ofSeconds(15))
+                .header("x-api-key", key).header("Accept", "application/json").GET().build();
+        java.net.http.HttpResponse<String> resp = Client.INSTANCE.send(req,
+                java.net.http.HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (resp.statusCode() == 403) throw new IOException("CurseForge отклонил ключ API (HTTP 403)");
+        if (resp.statusCode() / 100 != 2) throw new IOException("CurseForge: HTTP " + resp.statusCode());
+        return resp.body();
     }
 
     // ---- Modrinth ----
@@ -88,15 +270,15 @@ public class ContentSource {
 
     private Page searchCurse(Kind kind, Sort sort, String query, int page) throws IOException, InterruptedException {
         String key = curseKey();
-        if (key.isEmpty()) throw new IOException("Для CurseForge задайте ключ API в переменной CF_API_KEY");
-        java.net.http.HttpRequest req = java.net.http.HttpRequest
-                .newBuilder(java.net.URI.create(curseUrl(kind, sort, query, page)))
-                .timeout(java.time.Duration.ofSeconds(20))
-                .header("x-api-key", key).header("Accept", "application/json").GET().build();
-        java.net.http.HttpResponse<String> resp = java.net.http.HttpClient.newHttpClient()
-                .send(req, java.net.http.HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (resp.statusCode() / 100 != 2) throw new IOException("CurseForge: HTTP " + resp.statusCode());
-        return parseCurse(resp.body());
+        if (key.isEmpty()) throw new MissingKey();
+        return parseCurse(curseGet(curseUrl(kind, sort, query, page), key));
+    }
+
+    /** CurseForge отдаёт данные только с личным ключом API: экран предлагает его ввести. */
+    public static final class MissingKey extends IOException {
+        public MissingKey() {
+            super("Нужен ключ API CurseForge");
+        }
     }
 
     public static String curseUrl(Kind kind, Sort sort, String query, int page) {

@@ -48,7 +48,37 @@ public final class Main {
     private Main() {
     }
 
+    /**
+     * Java 17 на Windows открывает служебный сокет в папке TEMP. Если в пути есть кириллица
+     * (C:\Users\Дмитрий\...), HttpClient падает с «Unable to establish loopback connection»
+     * и не работают новости, обновления и скины Ely.by. Тогда сокет переносится в папку
+     * с латинским путём. Вызывается до первого сетевого запроса.
+     */
+    static void asciiSocketDir() {
+        if (System.getProperty("jdk.net.unixdomain.tmpdir") != null) return;
+        String tmp = System.getProperty("java.io.tmpdir", "");
+        try {
+            // TEMP часто задан коротким именем (C:\Users\AACE~1), а кириллица видна только в полном пути.
+            tmp = java.nio.file.Path.of(tmp).toRealPath().toString();
+        } catch (Exception ignored) {
+        }
+        if (tmp.chars().allMatch(c -> c < 128)) return;
+        for (String base : new String[]{System.getenv("PUBLIC"), System.getenv("SystemRoot") + "\\Temp", "C:\\Temp"}) {
+            if (base == null || base.startsWith("null") || !base.chars().allMatch(c -> c < 128)) continue;
+            try {
+                java.nio.file.Path dir = java.nio.file.Path.of(base, "CWLauncher-sock");
+                java.nio.file.Files.createDirectories(dir);
+                java.nio.file.Path probe = java.nio.file.Files.createTempFile(dir, "p", ".tmp");
+                java.nio.file.Files.deleteIfExists(probe);
+                System.setProperty("jdk.net.unixdomain.tmpdir", dir.toString());
+                return;
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     public static void main(String[] args) {
+        asciiSocketDir();
         if (isUpdater(args)) {
             System.exit(runUpdater(args));
             return;

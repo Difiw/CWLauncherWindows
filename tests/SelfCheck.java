@@ -3,6 +3,8 @@ import ru.cw.launcher.core.Progress;
 import ru.cw.launcher.core.Settings;
 import ru.cw.launcher.mods.ModManager;
 import ru.cw.launcher.security.Secrets;
+import ru.cw.launcher.skin.ElySkin;
+import ru.cw.launcher.skin.PlayerSkin;
 import ru.cw.launcher.updates.UpdateParser;
 import ru.cw.launcher.util.Json;
 import ru.cw.launcher.util.Utils;
@@ -88,6 +90,26 @@ public final class SelfCheck {
         check(ElyAuthManager.sameState("abc", "abc") && !ElyAuthManager.sameState("abc", "abd"), "state сравнивается");
         check(!ElyAuthManager.sameState("abc", null), "пустой state отклоняется");
         check("Вход отменён".equals(ElyAuthManager.explainOauthError("access_denied", "denied")), "отмена входа");
+
+        // Ответ sessionserver Ely.by для Gelrd (снят 01.11.2026): скин 64×64, модель Steve.
+        String gelrd = "{\"id\":\"e019cfa93b074b7d9281601bc1cc8ba3\",\"name\":\"Gelrd\",\"properties\":[{\"name\":\"textures\",\"value\":\""
+                + "eyJ0aW1lc3RhbXAiOjE3OTM1NDY1Nzk0MzYsInByb2ZpbGVJZCI6ImUwMTljZmE5M2IwNzRiN2Q5MjgxNjAxYmMxY2M4YmEzIiwicHJvZmlsZU5hbWUiOiJHZWxyZCIsInRleHR1cmVzIjp7IlNLSU4iOnsidXJsIjoiaHR0cDovL2VseS5ieS9zdG9yYWdlL3NraW5zLzM2YmFlZDkwMmJkYzA0ZWM2NDVhNWVjMjdjNjE5MDZiLnBuZyJ9fX0="
+                + "\"},{\"name\":\"ely\",\"value\":\"x\"}]}";
+        ElySkin.Texture tex = ElySkin.fromProfile(gelrd);
+        check(tex != null && tex.url().endsWith("/storage/skins/36baed902bdc04ec645a5ec27c61906b.png"), "URL скина Ely из профиля");
+        check(tex != null && !tex.slim(), "модель Steve без metadata");
+        check(ElySkin.fromProfile("{\"id\":\"x\",\"properties\":[]}") == null, "профиль без текстур — скина нет");
+        ElySkin.Texture alex = ElySkin.fromTextures(Json.parseObject(
+                "{\"SKIN\":{\"url\":\"http://ely.by/s.png\",\"metadata\":{\"model\":\"slim\"}}}"));
+        check(alex != null && alex.slim(), "модель Alex из metadata");
+        check(ElySkin.fromTextures(Json.parseObject("{}")) == null, "пустые textures — скина нет");
+        check(ElySkin.decode(new byte[]{1, 2, 3, 4}) == null, "битый PNG не читается и не роняет лаунчер");
+        check(ElySkin.validLayout(new java.awt.image.BufferedImage(64, 64, 2)), "64×64 подходит");
+        check(ElySkin.validLayout(new java.awt.image.BufferedImage(64, 32, 2)), "64×32 подходит");
+        check(ElySkin.validLayout(new java.awt.image.BufferedImage(128, 128, 2)), "HD 128×128 подходит");
+        check(!ElySkin.validLayout(new java.awt.image.BufferedImage(50, 50, 2)), "50×50 отклоняется");
+        java.awt.image.BufferedImage old = new java.awt.image.BufferedImage(64, 32, 2);
+        check(PlayerSkin.headOf(old).getWidth() == 8, "голова из старого скина 64×32");
 
         check(slipped, "ZIP Slip отклонён");
         check(!Files.exists(dir.resolve("escape.txt")), "файл за пределами каталога не создан");

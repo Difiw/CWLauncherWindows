@@ -1,25 +1,30 @@
 package ru.cw.launcher.ui;
 
+import ru.cw.launcher.util.Paths;
+
+import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
+import java.awt.geom.RoundRectangle2D;
+import java.awt.image.BufferedImage;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
- * Окно подготовки. Срез углов совпадает у заливки и синей обводки,
- * поэтому по краям не остаётся чёрного прямоугольника.
+ * Окно подготовки: стеклянная карточка с ночной сценой, логотипом, строкой статуса
+ * и полосой с процентами. Углы прозрачные, поэтому по краям нет чёрного прямоугольника.
  */
 public class SplashWindow extends JFrame {
 
-    private static final int CUT = 22;
+    private static final int W = 820;
+    private static final int H = 430;
+    private static final int ARC = 46;
 
-    private final JLabel title = new JLabel("CWLauncher", SwingConstants.CENTER);
-    private final JLabel stage = new JLabel("Загрузка данных о лаунчере", SwingConstants.CENTER);
-    private final JLabel percent = new JLabel("0%", SwingConstants.CENTER);
-    private final JProgressBar bar = new JProgressBar(0, 100);
-    private float glow;
+    private final Card card = new Card();
+    private String stage = "Загрузка данных о лаунчере…";
     private int shown;
     private int target;
+    private float phase;
     private Timer motion;
 
     public SplashWindow() {
@@ -27,87 +32,30 @@ public class SplashWindow extends JFrame {
         setUndecorated(true);
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         setResizable(false);
-        setBackground(new Color(0x0B1220));
+        setBackground(new Color(0, 0, 0, 0));
         try {
             setIconImage(Icons.appIcon());
         } catch (Exception ignored) {
         }
-        JPanel root = new JPanel(new GridBagLayout()) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                Shape fill = CutPaint.shape(getWidth(), getHeight(), CUT);
-                g2.setColor(new Color(0x0B1220));
-                g2.fill(fill);
-                float pulse = UiLook.anim() ? 0.65f + 0.35f * (float) Math.sin(glow * Math.PI * 2) : 1f;
-                g2.setColor(new Color(59, 130, 246, (int) (120 + 110 * pulse)));
-                g2.setStroke(new BasicStroke(1.4f + pulse));
-                g2.draw(CutPaint.shape(Math.max(1, getWidth() - 1), Math.max(1, getHeight() - 1), CUT));
-                g2.dispose();
-            }
-        };
-        root.setOpaque(false);
-        root.setBorder(BorderFactory.createEmptyBorder(26, 32, 24, 32));
-        GridBagConstraints c = new GridBagConstraints();
-        c.gridx = 0;
-        c.gridy = 0;
-        c.weightx = 1;
-        c.fill = GridBagConstraints.HORIZONTAL;
-        c.anchor = GridBagConstraints.CENTER;
-        title.setFont(new Font(Theme.FAMILY, Font.BOLD, 22));
-        title.setForeground(Color.WHITE);
-        root.add(title, c);
-        c.gridy = 1;
-        c.insets = new Insets(10, 0, 0, 0);
-        stage.setFont(new Font(Theme.FAMILY, Font.PLAIN, 14));
-        stage.setForeground(new Color(0xC5D4EA));
-        root.add(stage, c);
-        c.gridy = 2;
-        c.insets = new Insets(18, 0, 0, 0);
-        bar.setUI(new Theme.FlatProgressBarUI());
-        bar.setForeground(new Color(0x3B82F6));
-        bar.setBackground(new Color(0x162033));
-        bar.setPreferredSize(new Dimension(360, 10));
-        bar.setMaximumSize(new Dimension(360, 10));
-        bar.setStringPainted(false);
-        bar.setBorderPainted(false);
-        JPanel barWrap = new JPanel(new GridBagLayout());
-        barWrap.setOpaque(false);
-        barWrap.add(bar);
-        root.add(barWrap, c);
-        c.gridy = 3;
-        c.insets = new Insets(10, 0, 0, 0);
-        percent.setFont(new Font(Theme.FAMILY, Font.BOLD, 14));
-        percent.setForeground(Color.WHITE);
-        root.add(percent, c);
-        setContentPane(root);
-        setSize(480, 210);
+        card.setOpaque(false);
+        setContentPane(card);
+        setSize(W, H);
         setLocationRelativeTo(null);
-        addComponentListener(new ComponentAdapter() {
-            @Override
-            public void componentResized(ComponentEvent e) {
-                clip();
-            }
-        });
-        clip();
         motion = new Timer(32, e -> {
             if (!isShowing()) return;
             boolean moving = false;
             if (UiLook.anim()) {
-                glow += 0.02f;
-                if (glow > 1f) glow -= 1f;
+                phase += 0.9f;
+                if (phase > 1000f) phase -= 1000f;
                 moving = true;
             }
             if (shown != target) {
                 int step = Math.max(1, Math.abs(target - shown) / 5);
                 shown += shown < target ? step : -step;
                 if (Math.abs(target - shown) <= step) shown = target;
-                bar.setValue(shown);
-                percent.setText(shown + "%");
                 moving = true;
             }
-            if (moving) getContentPane().repaint();
+            if (moving) card.repaint();
         });
         motion.setCoalesce(true);
         motion.start();
@@ -125,25 +73,205 @@ public class SplashWindow extends JFrame {
         super.dispose();
     }
 
-    private void clip() {
-        if (getWidth() < 8 || getHeight() < 8) return;
-        setShape(CutPaint.shape(getWidth(), getHeight(), CUT));
-    }
-
     /** Реальный шаг локальной проверки, 0–100. Полоса доезжает, а не прыгает. */
     public void step(int value, String text) {
         Runnable r = () -> {
-            int v = Math.max(0, Math.min(100, value));
-            target = v;
-            bar.setIndeterminate(false);
-            stage.setText(text == null || text.isBlank() ? " " : text);
-            if (!UiLook.anim()) {
-                shown = v;
-                bar.setValue(v);
-                percent.setText(v + "%");
-            }
+            target = Math.max(0, Math.min(100, value));
+            stage = text == null || text.isBlank() ? " " : text;
+            if (!UiLook.anim()) shown = target;
+            card.repaint();
         };
         if (SwingUtilities.isEventDispatchThread()) r.run();
         else SwingUtilities.invokeLater(r);
+    }
+
+    /** Для проверки отрисовки без показа окна. */
+    void paintTo(Graphics2D g, int percent, String text) {
+        shown = percent;
+        target = percent;
+        stage = text;
+        card.setSize(W, H);
+        card.paint(g);
+    }
+
+    private final class Card extends JPanel {
+        private BufferedImage scene;
+        private boolean sceneTried;
+
+        Card() {
+            super(null);
+        }
+
+        /** Сцена карточки: основной фон, уже подогнанный под размер. Читается один раз. */
+        private BufferedImage scene() {
+            if (sceneTried) return scene;
+            sceneTried = true;
+            try {
+                Path p = Paths.mainBackground();
+                if (!Files.isRegularFile(p)) p = Path.of("assets", "background", "main.png");
+                BufferedImage src = Files.isRegularFile(p) ? ImageIO.read(p.toFile()) : null;
+                if (src == null) return null;
+                BufferedImage out = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
+                Graphics2D g = out.createGraphics();
+                g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                double scale = Math.max((double) W / src.getWidth(), (double) H / src.getHeight());
+                int dw = (int) Math.ceil(src.getWidth() * scale);
+                int dh = (int) Math.ceil(src.getHeight() * scale);
+                g.drawImage(src, (W - dw) / 2, 0, dw, dh, null);
+                g.dispose();
+                scene = out;
+            } catch (Exception ignored) {
+                scene = null;
+            }
+            return scene;
+        }
+
+        @Override
+        protected void paintComponent(Graphics g0) {
+            Graphics2D g = (Graphics2D) g0.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+            int w = getWidth();
+            int h = getHeight();
+            Shape cardShape = new RoundRectangle2D.Float(2, 2, w - 5, h - 5, ARC, ARC);
+
+            Shape oldClip = g.getClip();
+            g.clip(cardShape);
+            g.setPaint(new GradientPaint(0, 0, new Color(0x13233A), 0, h, new Color(0x0A1424)));
+            g.fillRect(0, 0, w, h);
+            BufferedImage sc = scene();
+            if (sc != null) {
+                g.setComposite(AlphaComposite.SrcOver.derive(0.55f));
+                g.drawImage(sc, 0, 0, null);
+                g.setComposite(AlphaComposite.SrcOver);
+            }
+            // Затемнение к краям: по центру текст читается, сцена остаётся видна по бокам.
+            g.setPaint(new GradientPaint(0, 0, new Color(8, 16, 30, 120), 0, h, new Color(8, 16, 30, 165)));
+            g.fillRect(0, 0, w, h);
+            g.setPaint(new RadialGradientPaint(w / 2f, h * 0.45f, w * 0.55f, new float[]{0f, 1f},
+                    new Color[]{new Color(10, 24, 44, 160), new Color(10, 24, 44, 0)}));
+            g.fillRect(0, 0, w, h);
+            g.setClip(oldClip);
+
+            g.setStroke(new BasicStroke(2.2f));
+            g.setPaint(new GradientPaint(0, 0, new Color(120, 190, 255, 200), 0, h, new Color(60, 120, 200, 140)));
+            g.draw(cardShape);
+
+            drawLogo(g, w);
+            drawStage(g, w);
+            drawBar(g, w);
+            g.dispose();
+        }
+
+        private void drawLogo(Graphics2D g, int w) {
+            String name = "CWLauncher";
+            Font big = new Font(Theme.FAMILY, Font.BOLD, 56);
+            g.setFont(big);
+            FontMetrics fm = g.getFontMetrics();
+            BufferedImage cube = LogoArt.cube();
+            int cubeH = 108;
+            int cubeW = cube == null ? cubeH : (int) Math.round(cubeH * cube.getWidth() / (double) cube.getHeight());
+            int gap = 22;
+            int total = cubeW + gap + fm.stringWidth(name);
+            int x = (w - total) / 2;
+            int top = 52;
+            if (cube != null) {
+                g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                g.drawImage(cube, x, top, cubeW, cubeH, null);
+            } else {
+                g.drawImage(Icons.appIcon(), x, top, cubeH, cubeH, null);
+            }
+            int tx = x + cubeW + gap;
+            int base = top + 66;
+            g.setPaint(new GradientPaint(tx, base - 50, new Color(0xFFFFFF), tx, base, new Color(0xB9D2EE)));
+            g.drawString(name, tx, base);
+            // «COMMON WORLD» с тонкими линиями по сторонам.
+            Font small = new Font(Theme.FAMILY, Font.PLAIN, 15);
+            g.setFont(small);
+            String sub = "C O M M O N   W O R L D";
+            FontMetrics sf = g.getFontMetrics();
+            int sw = sf.stringWidth(sub);
+            int sx = tx + (fm.stringWidth(name) - sw) / 2;
+            int sy = base + 28;
+            g.setColor(new Color(0xA9BCD6));
+            g.drawString(sub, sx, sy);
+            g.setColor(new Color(130, 160, 200, 140));
+            g.drawLine(tx, sy - 5, sx - 14, sy - 5);
+            g.drawLine(sx + sw + 14, sy - 5, tx + fm.stringWidth(name), sy - 5);
+        }
+
+        private void drawStage(Graphics2D g, int w) {
+            Font f = new Font(Theme.FAMILY, Font.PLAIN, 26);
+            g.setFont(f);
+            FontMetrics fm = g.getFontMetrics();
+            int icon = 44;
+            int gap = 22;
+            int tw = fm.stringWidth(stage);
+            int total = icon + gap + tw;
+            int x = Math.max(36, (w - total) / 2);
+            int y = 236;
+            SettingsKit.icon(SettingsKit.Glyph.LAYERS, icon, new Color(0xC6D6EA)).paintIcon(this, g, x, y - icon / 2 - 4);
+            g.setColor(new Color(0xE3ECF8));
+            g.drawString(SettingsKit.ellipsize(stage, fm, w - 2 * 36 - icon - gap), x + icon + gap, y + fm.getAscent() / 2 - 4);
+        }
+
+        private void drawBar(Graphics2D g, int w) {
+            int left = 38;
+            int boxW = 104;
+            int boxH = 56;
+            int right = w - 38;
+            int trackW = right - left - boxW - 22;
+            int trackH = 38;
+            int y = 292;
+            RoundRectangle2D.Float track = new RoundRectangle2D.Float(left, y, trackW, trackH, trackH, trackH);
+            g.setColor(new Color(8, 18, 32, 220));
+            g.fill(track);
+            g.setColor(new Color(150, 175, 210, 120));
+            g.setStroke(new BasicStroke(2f));
+            g.draw(track);
+
+            int fill = Math.max(trackH - 8, (int) ((trackW - 8) * (shown / 100.0)));
+            if (shown <= 0) fill = trackH - 8;
+            RoundRectangle2D.Float bar = new RoundRectangle2D.Float(left + 4, y + 4, fill, trackH - 8, trackH - 8, trackH - 8);
+            // Свечение под полосой.
+            for (int i = 3; i >= 1; i--) {
+                g.setColor(new Color(40, 140, 255, 14 * (4 - i)));
+                g.fill(new RoundRectangle2D.Float(bar.x - i * 2, bar.y - i * 2, bar.width + i * 4, bar.height + i * 4,
+                        bar.height + i * 4, bar.height + i * 4));
+            }
+            g.setPaint(new GradientPaint(0, bar.y, new Color(0x6FB4FF), 0, bar.y + bar.height, new Color(0x2F7BEA)));
+            g.fill(bar);
+            // Диагональные полоски, бегут вправо.
+            Shape old = g.getClip();
+            g.clip(bar);
+            g.setColor(new Color(255, 255, 255, 52));
+            int period = 34;
+            int off = (int) (phase % period);
+            for (int sx = (int) bar.x - period * 2 + off; sx < bar.x + bar.width + period; sx += period) {
+                java.awt.geom.Path2D.Float stripe = new java.awt.geom.Path2D.Float();
+                stripe.moveTo(sx, bar.y + bar.height);
+                stripe.lineTo(sx + 16, bar.y + bar.height);
+                stripe.lineTo(sx + 16 + bar.height, bar.y);
+                stripe.lineTo(sx + bar.height, bar.y);
+                stripe.closePath();
+                g.fill(stripe);
+            }
+            g.setPaint(new GradientPaint(0, bar.y, new Color(255, 255, 255, 80), 0, bar.y + bar.height / 2, new Color(255, 255, 255, 0)));
+            g.fillRect((int) bar.x, (int) bar.y, (int) bar.width, (int) bar.height / 2);
+            g.setClip(old);
+
+            RoundRectangle2D.Float box = new RoundRectangle2D.Float(right - boxW, y + trackH / 2f - boxH / 2f, boxW, boxH, 20, 20);
+            g.setColor(new Color(10, 22, 40, 235));
+            g.fill(box);
+            g.setColor(new Color(150, 175, 210, 130));
+            g.draw(box);
+            g.setFont(new Font(Theme.FAMILY, Font.BOLD, 30));
+            FontMetrics fm = g.getFontMetrics();
+            String pct = shown + "%";
+            g.setColor(Color.WHITE);
+            g.drawString(pct, box.x + (box.width - fm.stringWidth(pct)) / 2f,
+                    box.y + (box.height + fm.getAscent() - fm.getDescent()) / 2f);
+        }
     }
 }

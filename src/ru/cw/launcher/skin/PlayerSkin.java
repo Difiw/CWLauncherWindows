@@ -29,6 +29,8 @@ public final class PlayerSkin {
     private static long stamp = -1;
     private static String ownerId = "";
     private static final String SELECTED = ".selected";
+    /** Содержимое .selected, когда выбран скин с Ely.by, а не файл из папки. */
+    private static final String ELY = "@ely";
 
     private PlayerSkin() {
     }
@@ -45,11 +47,33 @@ public final class PlayerSkin {
         return file;
     }
 
-    /** Голова скина этого аккаунта. Без файла — null, и тогда рисуется значок профиля. */
+    /**
+     * Голова скина этого аккаунта: выбранный локальный скин, а у Ely.by без него — скин с Ely.
+     * Ничего нет — null, и тогда рисуется значок профиля.
+     */
     public static BufferedImage headOfAccount(Account account) {
         if (account == null) return null;
         Path selected = selected(account);
-        return selected == null ? null : headOf(selected);
+        if (selected != null) return headOf(selected);
+        ElySkin.Entry ely = ElySkin.cached(account);
+        return ely == null ? null : headOf(ely.image());
+    }
+
+    /** Ely-аккаунт играет в скине с Ely.by: выбран он сам или своих скинов нет. */
+    public static boolean usesEly(Account account) {
+        return ElySkin.applies(account) && selected(account) == null;
+    }
+
+    /**
+     * Выбирает скин с Ely.by. Локальные скины остаются в библиотеке, но при запуске
+     * игры в Ely ничего не перезаписывается.
+     */
+    public static void chooseEly(Account account) throws IOException {
+        if (!ElySkin.applies(account)) throw new IOException("Это не аккаунт Ely.by");
+        Path dir = Paths.accountSkinDir(account.id);
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve(SELECTED), ELY);
+        refresh(account, true);
     }
 
     /** Один сохранённый вариант скина. */
@@ -167,10 +191,15 @@ public final class PlayerSkin {
         Path dir = Paths.accountSkinDir(account.id).toAbsolutePath().normalize();
         Path normalized = skin.toAbsolutePath().normalize();
         if (!normalized.startsWith(dir)) throw new IOException("Скин не принадлежит выбранному профилю");
+        boolean wasSelected = same(normalized, selected(account));
         Files.deleteIfExists(normalized);
-        Path next = newest(dir);
-        if (next == null) Files.deleteIfExists(dir.resolve(SELECTED));
-        else Files.writeString(dir.resolve(SELECTED), next.getFileName().toString());
+        if (wasSelected) {
+            Path next = newest(dir);
+            // У Ely-аккаунта после удаления выбранного скина возвращается скин с Ely.by.
+            if (ElySkin.applies(account)) Files.writeString(dir.resolve(SELECTED), ELY);
+            else if (next == null) Files.deleteIfExists(dir.resolve(SELECTED));
+            else Files.writeString(dir.resolve(SELECTED), next.getFileName().toString());
+        }
         refresh(account, true);
     }
 
@@ -182,14 +211,17 @@ public final class PlayerSkin {
     private static boolean refresh(Account account, boolean force) {
         if (account != null) adoptLegacy(account);
         Path newest = account == null ? null : selected(account);
+        ElySkin.Entry ely = newest == null ? ElySkin.cached(account) : null;
         String nextOwner = account == null || account.id == null ? "" : account.id;
-        long next = stampOf(newest);
+        long next = stampOf(newest) ^ (ely == null ? 0 : System.identityHashCode(ely.image()) * 31L);
         if (!force && nextOwner.equals(ownerId) && next == stamp && (account != null || face == null)) return false;
         ownerId = nextOwner;
         stamp = next;
+        // file — только локальный скин: его лаунчер сам отдаёт игре. Скин Ely игра берёт у Ely.
         file = newest;
-        face = newest == null ? null : headOf(newest);
+        face = newest != null ? headOf(newest) : ely != null ? headOf(ely.image()) : null;
         if (newest != null) Log.info("Скин " + account.username + ": " + newest.getFileName());
+        else if (ely != null) Log.info("Скин " + account.username + ": с Ely.by");
         return true;
     }
 
@@ -228,6 +260,10 @@ public final class PlayerSkin {
         try {
             if (Files.isRegularFile(marker)) {
                 String name = Files.readString(marker).trim();
+                if (ELY.equals(name)) {
+                    if (ElySkin.applies(account)) return null;
+                    name = "";
+                }
                 Path candidate = dir.resolve(name).normalize();
                 if (candidate.startsWith(dir.normalize()) && Files.isRegularFile(candidate) && image(candidate)) {
                     return candidate;
@@ -359,24 +395,26 @@ public final class PlayerSkin {
 
     private static BufferedImage headOf(Path path) {
         try {
-            BufferedImage img = ImageIO.read(path.toFile());
-            if (img == null) return null;
-            int scale = img.getWidth() / 64;
-            if (scale >= 1 && img.getWidth() == scale * 64 && img.getHeight() >= scale * 32) {
-                BufferedImage face = new BufferedImage(8 * scale, 8 * scale, BufferedImage.TYPE_INT_ARGB);
-                Graphics2D g = face.createGraphics();
-                g.drawImage(img, 0, 0, 8 * scale, 8 * scale, 8 * scale, 8 * scale, 16 * scale, 16 * scale, null);
-                if (img.getHeight() >= scale * 64) {
-                    g.drawImage(img, 0, 0, 8 * scale, 8 * scale, 40 * scale, 8 * scale, 48 * scale, 16 * scale, null);
-                }
-                g.dispose();
-                return face;
-            }
-            return img;
+            return headOf(ImageIO.read(path.toFile()));
         } catch (IOException e) {
             Log.warn("Скин не прочитан: " + Log.reason(e));
             return null;
         }
+    }
+
+    /** Лицо 8×8 со слоем шлема. Голова есть и у старых скинов 64×32. */
+    public static BufferedImage headOf(BufferedImage img) {
+        if (img == null) return null;
+        int scale = img.getWidth() / 64;
+        if (scale >= 1 && img.getWidth() == scale * 64 && img.getHeight() >= scale * 32) {
+            BufferedImage face = new BufferedImage(8 * scale, 8 * scale, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = face.createGraphics();
+            g.drawImage(img, 0, 0, 8 * scale, 8 * scale, 8 * scale, 8 * scale, 16 * scale, 16 * scale, null);
+            g.drawImage(img, 0, 0, 8 * scale, 8 * scale, 40 * scale, 8 * scale, 48 * scale, 16 * scale, null);
+            g.dispose();
+            return face;
+        }
+        return img;
     }
 
     public static void paint(Graphics2D g, BufferedImage face, int x, int y, int size) {

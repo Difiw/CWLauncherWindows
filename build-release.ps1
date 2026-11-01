@@ -1,4 +1,5 @@
 # Собирает CWLauncher.exe в FullLauncherCW (jpackage app-image + иконка).
+param([string]$OutDir = "")
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $javac = "C:\Program Files\Java\jdk-17\bin\javac.exe"
@@ -29,14 +30,15 @@ if ($LASTEXITCODE -ne 0) { throw "jar не собран" }
 $stage = Join-Path $root "_jpackage"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 & $jpackage --type app-image --name CWLauncher --input $dist --main-jar CWLauncher.jar `
-  --main-class ru.cw.launcher.Main --icon $icon --dest $stage --app-version 4.4.1 `
+  --main-class ru.cw.launcher.Main --icon $icon --dest $stage --app-version 4.4.5 `
   --vendor "CWLauncher" --description "CWLauncher" `
   --java-options "-Dfile.encoding=UTF-8" --java-options "-Xms64m" --java-options "-Xmx512m" `
   --java-options "-XX:+UseG1GC" --java-options "-XX:+UseStringDeduplication" --java-options "-XX:MaxGCPauseMillis=50" `
   --add-modules java.desktop,java.datatransfer,java.net.http,java.logging,java.naming,java.xml,java.prefs,jdk.crypto.ec,jdk.unsupported,jdk.management
 if ($LASTEXITCODE -ne 0) { throw "jpackage не собрал приложение" }
 
-$out = Join-Path $root "FullLauncherCW"
+# OutDir нужен, когда лаунчер из FullLauncherCW запущен и папку занять нельзя.
+$out = if ($OutDir) { $OutDir } else { Join-Path $root "FullLauncherCW" }
 $savedBg = Join-Path $env:TEMP "CWLauncher-main.png"
 $existingBg = Join-Path $out "assets\background\main.png"
 if (Test-Path $existingBg) { Copy-Item $existingBg $savedBg -Force }
@@ -85,8 +87,9 @@ if (Test-Path $repoBg) { Copy-Item $repoBg (Join-Path $bg "main.png") -Force }
 elseif (Test-Path $savedBg) { Copy-Item $savedBg (Join-Path $bg "main.png") -Force }
 $ui = Join-Path $out "assets\ui"
 New-Item -ItemType Directory -Path $ui -Force | Out-Null
-$mainReference = Join-Path $root "assets\ui\main-reference.png"
-if (Test-Path $mainReference) { Copy-Item $mainReference (Join-Path $ui "main-reference.png") -Force }
+# Картинки интерфейса: макет с логотипом и фон боковой панели.
+$uiSrc = Join-Path $root "assets\ui"
+if (Test-Path $uiSrc) { Copy-Item (Join-Path $uiSrc "*.png") $ui -Force }
 $publishedUpdater = "W:\ProjectCode\CWLInstaller\dist\CWLauncher-Update.exe"
 $updaterDest = Join-Path $out "CWLauncher-Update.exe"
 if (Test-Path $publishedUpdater) { Copy-Item $publishedUpdater $updaterDest -Force }

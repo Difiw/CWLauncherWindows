@@ -468,15 +468,15 @@ public final class ProfileWindow {
     static boolean configureEly(Component parent, LauncherApp app) {
         JDialog box = child(parent instanceof Window w ? w : null, Lang.t("prof_ely_cfg"));
         JTextField id = Theme.field(app.cfg.elyClientId == null ? "" : app.cfg.elyClientId, 28);
-        JTextField redirect = Theme.field(app.cfg.elyRedirectUri == null ? "" : app.cfg.elyRedirectUri, 28);
-        JTextField backend = Theme.field(app.cfg.elyBackendUrl == null ? "" : app.cfg.elyBackendUrl, 28);
+        JTextField secret = Theme.field("", 28);
         boolean[] ok = {false};
         JButton save = SettingsChrome.pill(Lang.t("save"), true);
         JButton cancel = SettingsChrome.pill(Lang.t("cancel"), false);
+        JButton cabinet = SettingsChrome.pill(Tr.t("Открыть кабинет Ely.by", "Open the Ely.by cabinet"), false);
+        cabinet.addActionListener(e -> ru.cw.launcher.util.Utils.openUrl("https://account.ely.by/dev/applications/new"));
         save.addActionListener(e -> {
-            app.cfg.elyClientId = id.getText().trim();
-            app.cfg.elyRedirectUri = redirect.getText().trim();
-            app.cfg.elyBackendUrl = backend.getText().trim();
+            if (id.getText().isBlank() || secret.getText().isBlank()) return;
+            ElyAuthManager.saveDirectCredentials(app.cfg, id.getText(), secret.getText());
             app.saveSettings();
             ok[0] = true;
             box.dispose();
@@ -486,15 +486,22 @@ public final class ProfileWindow {
         form.setOpaque(false);
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
         form.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        form.add(fieldBlock(Lang.t("ely_id"), id));
+        form.add(muted(Tr.t("Один раз зарегистрируйте приложение на Ely.by: тип «Веб-сайт», название CWLauncher, "
+                        + "Redirect URI — " + ElyAuthManager.DIRECT_REDIRECT + ". Затем вставьте Client ID и Client Secret. "
+                        + "После этого вход — обычная кнопка: откроется браузер, вы входите на Ely.by и возвращаетесь в лаунчер.",
+                "Register the app on Ely.by once: type “Website”, name CWLauncher, Redirect URI "
+                        + ElyAuthManager.DIRECT_REDIRECT + ". Then paste the Client ID and Client Secret. "
+                        + "After that signing in is a normal button: the browser opens, you sign in on Ely.by and come back.")));
+        form.add(Box.createVerticalStrut(10));
+        form.add(fieldBlock("Client ID", id));
         form.add(Box.createVerticalStrut(8));
-        form.add(fieldBlock(Lang.t("ely_redirect"), redirect));
+        form.add(fieldBlock("Client Secret", secret));
         form.add(Box.createVerticalStrut(8));
-        form.add(fieldBlock(Lang.t("ely_backend"), backend));
-        form.add(Box.createVerticalStrut(8));
-        form.add(muted(Lang.t("prof_ely_h")));
+        form.add(muted(Tr.t("Секрет хранится только на этом компьютере в защищённом хранилище Windows.",
+                "The secret is kept only on this computer in the protected Windows store.")));
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         buttons.setOpaque(false);
+        buttons.add(cabinet);
         buttons.add(cancel);
         buttons.add(save);
         box.add(form, BorderLayout.CENTER);

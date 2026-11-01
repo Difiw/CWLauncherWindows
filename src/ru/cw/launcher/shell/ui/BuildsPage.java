@@ -22,7 +22,7 @@ public final class BuildsPage extends JPanel {
     private final JPanel cards = new JPanel();
     private final Map<String, String> status = new ConcurrentHashMap<>();
 
-    public BuildsPage(BuildStore store, Runnable onCreate) {
+    public BuildsPage(BuildStore store, Runnable onCreate, Runnable onDownload) {
         super(new BorderLayout(0, 16));
         this.store = store;
         this.onCreate = onCreate;
@@ -33,7 +33,14 @@ public final class BuildsPage extends JPanel {
         t.add(Kit.label("Сборки", Font.BOLD, 28, Kit.TEXT));
         t.add(Kit.label("Ваши сборки Minecraft: версия, ядро, моды и настройки.", Font.PLAIN, 14, Kit.MUTED));
         head.add(t, BorderLayout.CENTER);
-        head.add(new Kit.Btn("Создать сборку", true, "plus", onCreate), BorderLayout.EAST);
+        JPanel actions = Kit.clear(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        Kit.Btn download = new Kit.Btn("Скачать сборку", false, "download", onDownload);
+        download.setPreferredSize(new Dimension(190, 44));
+        Kit.Btn create = new Kit.Btn("Создать сборку", true, "plus", onCreate);
+        create.setPreferredSize(new Dimension(190, 44));
+        actions.add(download);
+        actions.add(create);
+        head.add(actions, BorderLayout.EAST);
         add(head, BorderLayout.NORTH);
 
         cards.setOpaque(false);
@@ -51,7 +58,8 @@ public final class BuildsPage extends JPanel {
     public void setStatus(String id, String text) {
         if (text == null || text.isEmpty()) status.remove(id);
         else status.put(id, text);
-        SwingUtilities.invokeLater(this::repaintCards);
+        // «pack:…» — сборка ещё скачивается и карточки у неё нет: строка стоит над списком.
+        SwingUtilities.invokeLater(id.startsWith("pack:") ? this::refresh : this::repaintCards);
     }
 
     private void repaintCards() {
@@ -60,6 +68,15 @@ public final class BuildsPage extends JPanel {
 
     public void refresh() {
         cards.removeAll();
+        for (Map.Entry<String, String> e : status.entrySet()) {
+            if (!e.getKey().startsWith("pack:")) continue;
+            JPanel pending = new Kit.Round(new BorderLayout(), Kit.CARD, Kit.LINE, 14);
+            pending.setBorder(new EmptyBorder(14, 18, 14, 18));
+            pending.add(Kit.label(e.getValue(), Font.PLAIN, 14, Kit.TEXT), BorderLayout.CENTER);
+            pending.setMaximumSize(new Dimension(Integer.MAX_VALUE, 52));
+            cards.add(pending);
+            cards.add(Kit.vgap(12));
+        }
         List<BuildSpec> all = store.list();
         if (all.isEmpty()) {
             JPanel empty = new Kit.Round(new BorderLayout(), Kit.CARD, Kit.LINE, 18);
@@ -67,7 +84,7 @@ public final class BuildsPage extends JPanel {
             JPanel in = Kit.clear(new GridLayout(2, 1, 0, 6));
             JLabel a = Kit.label("Пока нет ни одной сборки", Font.BOLD, 18, Kit.TEXT);
             a.setHorizontalAlignment(SwingConstants.CENTER);
-            JLabel b = Kit.label("Нажмите «Создать сборку», выберите версию игры и ядро.", Font.PLAIN, 14, Kit.MUTED);
+            JLabel b = Kit.label("Создайте свою сборку или скачайте готовую с Modrinth и CurseForge.", Font.PLAIN, 14, Kit.MUTED);
             b.setHorizontalAlignment(SwingConstants.CENTER);
             in.add(a);
             in.add(b);

@@ -43,6 +43,10 @@ public final class BrowsePanel extends Kit.Round {
     });
     private static final Map<String, BufferedImage> ICONS = new ConcurrentHashMap<>();
 
+    /** Сохраняет ключ CurseForge в настройках; задаётся оболочкой. */
+    public static volatile java.util.function.Consumer<String> keySaver = k -> {
+    };
+
     private final ContentSource source;
     private final Action onAction;
     private final Marked marked;
@@ -81,9 +85,18 @@ public final class BrowsePanel extends Kit.Round {
         this.kind = kinds.length == 0 ? Kind.MOD : kinds[0];
         if (kinds.length != 1) top.add(buildTabs(kinds.length == 0
                 ? new Kind[]{Kind.MOD, Kind.MAP, Kind.MODPACK} : kinds), BorderLayout.NORTH);
-        providerBox.setItems(List.of("Modrinth", "CurseForge"), "Modrinth");
+        List<String> sites = new ArrayList<>();
+        for (Provider p : Provider.values()) sites.add(p.title);
+        providerBox.setItems(sites, Provider.MODRINTH.title);
+        providerBox.itemIcons(t -> switch (Provider.byTitle(t)) {
+            case MODRINTH -> "modrinth";
+            case CURSEFORGE -> "curseforge";
+            case MCINSIDE -> "mcinside";
+        });
         providerBox.onChange(v -> {
-            provider = "CurseForge".equals(v) ? Provider.CURSEFORGE : Provider.MODRINTH;
+            provider = Provider.byTitle(v);
+            search.putClientProperty("JTextField.placeholderText", provider == Provider.MCINSIDE ? "Поиск откроется на сайте (Enter)" : "Поиск");
+            search.repaint();
             reload(1);
         });
         JPanel mid = Kit.clear(new BorderLayout(0, 10));
@@ -91,6 +104,9 @@ public final class BrowsePanel extends Kit.Round {
         mid.add(providerBox, BorderLayout.NORTH);
         JPanel sr = Kit.clear(new BorderLayout());
         search.putClientProperty("JTextField.placeholderText", "Поиск");
+        search.addActionListener(e -> {
+            if (provider == Provider.MCINSIDE) ru.cw.launcher.util.Utils.openUrl(ContentSource.mcInsideSearchUrl(search.getText()));
+        });
         JComponent sf = Kit.field(search, "search");
         sf.setPreferredSize(new Dimension(10, 42));
         sr.add(sf, BorderLayout.CENTER);
@@ -246,18 +262,29 @@ public final class BrowsePanel extends Kit.Round {
         IO.submit(() -> {
             ContentSource.Page result = null;
             String error = null;
+            boolean noKey = false;
             try {
                 result = source.search(p, k, s, q, pg);
+            } catch (ContentSource.MissingKey e) {
+                noKey = true;
+                error = e.getMessage();
             } catch (java.io.IOException | RuntimeException e) {
-                error = e.getMessage() == null ? e.toString() : e.getMessage();
+                error = friendly(e);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
             }
             ContentSource.Page res = result;
             String err = error;
+            boolean needKey = noKey;
             SwingUtilities.invokeLater(() -> {
                 if (gen != generation.get()) return;
+                if (needKey) {
+                    showKeyPrompt();
+                    pages = 1;
+                    rebuildPager();
+                    return;
+                }
                 if (err != null) {
                     showStatus("Не удалось загрузить: " + err);
                     pages = 1;
@@ -267,6 +294,121 @@ public final class BrowsePanel extends Kit.Round {
                 fill(res, k, p);
             });
         });
+    }
+
+    /** Окно описания проекта: полный текст, ссылка на сайт и кнопка добавления. Текст грузится в фоне. */
+    private void details(Item item, Kind k, Provider p) {
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        JDialog d = new JDialog(owner, item.title(), Dialog.ModalityType.MODELESS);
+        JPanel root = new JPanel(new BorderLayout(0, 12));
+        root.setBackground(Kit.CARD);
+        root.setBorder(new EmptyBorder(18, 20, 16, 20));
+        JPanel head = Kit.clear(new GridLayout(2, 1, 0, 2));
+        head.add(Kit.label(item.title(), Font.BOLD, 20, Kit.TEXT));
+        head.add(Kit.label("<html>" + escape(item.author().isEmpty() ? p.title : item.author() + " · " + p.title) + "</html>", Font.PLAIN, 13, Kit.MUTED));
+        root.add(head, BorderLayout.NORTH);
+        JTextArea text = new JTextArea(item.summary() + "\n\nЗагрузка полного описания…");
+        text.setEditable(false);
+        text.setLineWrap(true);
+        text.setWrapStyleWord(true);
+        text.setOpaque(false);
+        text.setForeground(Kit.TEXT);
+        text.setFont(Kit.font(Font.PLAIN, 14));
+        text.setBorder(new EmptyBorder(4, 2, 4, 8));
+        JScrollPane sp = new JScrollPane(text);
+        Kit.style(sp);
+        sp.setPreferredSize(new Dimension(560, 340));
+        root.add(sp, BorderLayout.CENTER);
+        String[] url = {p == Provider.MCINSIDE ? item.id() : ""};
+        JPanel row = Kit.clear(new GridLayout(1, 0, 10, 0));
+        row.add(new Kit.Btn("Открыть на сайте", false, "globe", () -> {
+            if (!url[0].isEmpty()) ru.cw.launcher.util.Utils.openUrl(url[0]);
+        }));
+        if (p.installable()) {
+            row.add(new Kit.Btn(marked.test(item, k, p) ? "Убрать из сборки" : "Добавить в сборку", true, "download", () -> {
+                onAction.accept(item, k, p);
+                d.dispose();
+                repaint();
+            }));
+        }
+        row.add(new Kit.Btn("Закрыть", false, null, d::dispose));
+        row.setPreferredSize(new Dimension(10, 44));
+        root.add(row, BorderLayout.SOUTH);
+        d.setContentPane(root);
+        d.pack();
+        d.setLocationRelativeTo(owner);
+        d.setVisible(true);
+        IO.submit(() -> {
+            String body;
+            try {
+                ContentSource.Details det = source.details(p, item);
+                if (det.url() != null && !det.url().isEmpty()) url[0] = det.url();
+                body = det.text().isBlank() ? item.summary() : det.text();
+            } catch (java.io.IOException | RuntimeException e) {
+                body = item.summary() + "\n\n(Полное описание не загрузилось: " + friendly(e) + ")";
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            String shown = body;
+            SwingUtilities.invokeLater(() -> {
+                text.setText(shown);
+                text.setCaretPosition(0);
+            });
+            if (!ContentSource.translateToRussian || ru.cw.launcher.shell.Translator.mostlyRussian(shown)) return;
+            String translated;
+            try {
+                translated = ru.cw.launcher.shell.Translator.toRussian(shown)
+                        + "\n\n— Автоматический перевод. Оригинал на английском есть на сайте проекта.";
+            } catch (java.io.IOException | RuntimeException e) {
+                translated = shown + "\n\n(Перевод не получился: " + friendly(e) + ")";
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            String ru = translated;
+            SwingUtilities.invokeLater(() -> {
+                text.setText(ru);
+                text.setCaretPosition(0);
+            });
+        });
+    }
+
+    /** Понятный текст вместо сырого исключения: сеть, таймаут, отказ сервера. */
+    private static String friendly(Exception e) {
+        String m = e.getMessage() == null ? e.toString() : e.getMessage();
+        if (e instanceof java.net.http.HttpTimeoutException || m.contains("timed out")) return "Сайт не отвечает. Проверьте интернет и повторите.";
+        if (e instanceof java.net.ConnectException || e instanceof java.net.UnknownHostException || m.contains("loopback")) return "Нет соединения с сайтом. Проверьте интернет.";
+        return m;
+    }
+
+    /** CurseForge работает только с личным ключом: поле для ввода вместо тупиковой ошибки. */
+    private void showKeyPrompt() {
+        list.removeAll();
+        JPanel box = Kit.clear(new BorderLayout(0, 10));
+        box.setBorder(new EmptyBorder(24, 8, 0, 8));
+        box.add(Kit.label("<html><div style='width:290px'>CurseForge отдаёт каталог только по личному ключу API. Ключ бесплатный: console.curseforge.com → API keys. Вставьте его сюда один раз.</div></html>", Font.PLAIN, 13, Kit.MUTED), BorderLayout.NORTH);
+        JTextField key = new JTextField();
+        key.putClientProperty("JTextField.placeholderText", "Ключ API CurseForge");
+        JComponent field = Kit.field(key, "key");
+        field.setPreferredSize(new Dimension(10, 42));
+        box.add(field, BorderLayout.CENTER);
+        JPanel row = Kit.clear(new GridLayout(1, 2, 8, 0));
+        row.add(new Kit.Btn("Получить ключ", false, "globe", () -> ru.cw.launcher.util.Utils.openUrl("https://console.curseforge.com/")));
+        Runnable save = () -> {
+            String v = key.getText().trim();
+            if (v.isEmpty()) return;
+            ContentSource.keyOverride = v;
+            keySaver.accept(v);
+            reload(1);
+        };
+        row.add(new Kit.Btn("Сохранить", true, "check", save));
+        row.setPreferredSize(new Dimension(10, 44));
+        box.add(row, BorderLayout.SOUTH);
+        key.addActionListener(e -> save.run());
+        list.add(box);
+        list.revalidate();
+        list.repaint();
     }
 
     private void showStatus(String text) {
@@ -406,7 +548,7 @@ public final class BrowsePanel extends Kit.Round {
                 @Override
                 public void mouseMoved(MouseEvent e) {
                     boolean h = btn.contains(e.getPoint());
-                    setCursor(Cursor.getPredefinedCursor(h ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+                    setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                     if (h != hoverBtn) {
                         hoverBtn = h;
                         repaint();
@@ -417,8 +559,12 @@ public final class BrowsePanel extends Kit.Round {
                 @Override
                 public void mouseReleased(MouseEvent e) {
                     if (btn.contains(e.getPoint())) {
-                        onAction.accept(item, Row.this.k, prov);
+                        // Minecraft Inside без API: страница проекта и скачивание — на самом сайте.
+                        if (!prov.installable()) ru.cw.launcher.util.Utils.openUrl(item.id());
+                        else onAction.accept(item, Row.this.k, prov);
                         repaint();
+                    } else {
+                        details(item, Row.this.k, prov);
                     }
                 }
 
@@ -474,11 +620,11 @@ public final class BrowsePanel extends Kit.Round {
             Icons.draw(g, "heart", sx, 69, 13, Kit.MUTED);
             g.drawString(ContentSource.compact(item.likes()), sx + 17, 80);
             // кнопка
-            boolean done = marked.test(item, k, prov);
+            boolean done = prov.installable() && marked.test(item, k, prov);
             btn.setBounds(w - 46, 22, 40, 40);
             g.setColor(done ? new Color(0x1F5B35) : hoverBtn ? Kit.ACCENT_HI : Kit.ACCENT);
             g.fill(new RoundRectangle2D.Float(btn.x, btn.y, btn.width, btn.height, 12, 12));
-            Icons.draw(g, done ? "check" : "download", btn.x + 9, btn.y + 9, 22, Color.WHITE);
+            Icons.draw(g, done ? "check" : prov.installable() ? "download" : "globe", btn.x + 9, btn.y + 9, 22, Color.WHITE);
             g.dispose();
         }
     }

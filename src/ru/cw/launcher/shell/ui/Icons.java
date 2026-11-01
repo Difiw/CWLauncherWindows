@@ -186,6 +186,52 @@ public final class Icons {
                 h.fill(head);
                 h.dispose();
             }
+            // Логотипы сайтов рисуются в фирменных цветах, цвет темы не влияет.
+            case "curseforge" -> {
+                // Наковальня CurseForge: рог слева, широкая наковальня, талия и основание.
+                g.setColor(new Color(0xF16436));
+                Path2D a = new Path2D.Double();
+                a.moveTo(1.5, 7.2);
+                a.lineTo(22.5, 7.2);
+                a.lineTo(22.5, 10.2);
+                a.curveTo(19.2, 10.6, 16.6, 11.8, 16.2, 14.2);
+                a.lineTo(17.6, 16.4);
+                a.lineTo(19.6, 16.4);
+                a.lineTo(19.6, 19.2);
+                a.lineTo(5.6, 19.2);
+                a.lineTo(5.6, 16.4);
+                a.lineTo(7.6, 16.4);
+                a.lineTo(9, 14.2);
+                a.curveTo(8.6, 12.4, 7.2, 11.4, 5.4, 11);
+                a.curveTo(3.6, 10.6, 2.2, 9.4, 1.5, 7.2);
+                a.closePath();
+                g.fill(a);
+            }
+            case "modrinth" -> {
+                // Знак Modrinth: зелёное кольцо с внутренней дугой-дорожкой.
+                g.setColor(new Color(0x1BD96A));
+                g.setStroke(new BasicStroke(2.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g.draw(new Arc2D.Double(2.5, 2.5, 19, 19, 100, 300, Arc2D.OPEN));
+                g.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g.draw(new Arc2D.Double(7, 7, 10, 10, 200, 250, Arc2D.OPEN));
+                g.draw(new Line2D.Double(12.6, 2.6, 15.6, 9.4));
+            }
+            case "mcinside" -> {
+                // Minecraft Inside: блок травы в изометрии.
+                Path2D top = Kit.poly(12, 2.5, 21, 7, 12, 11.5, 3, 7);
+                Path2D left = Kit.poly(3, 7, 12, 11.5, 12, 21.5, 3, 17);
+                Path2D right = Kit.poly(21, 7, 12, 11.5, 12, 21.5, 21, 17);
+                g.setColor(new Color(0x6BBF3A));
+                g.fill(top);
+                g.setColor(new Color(0x8A5A34));
+                g.fill(left);
+                g.setColor(new Color(0x6E4628));
+                g.fill(right);
+                g.setColor(new Color(0x4F9A2A));
+                g.fill(Kit.poly(3, 7, 12, 11.5, 12, 14, 3, 9.5));
+                g.setColor(new Color(0x3F7F22));
+                g.fill(Kit.poly(21, 7, 12, 11.5, 12, 14, 21, 9.5));
+            }
             case "globe" -> {
                 g.draw(new Ellipse2D.Double(3, 3, 18, 18));
                 g.draw(new Ellipse2D.Double(8, 3, 8, 18));

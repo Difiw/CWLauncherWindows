@@ -35,6 +35,8 @@ public final class BuildSpec {
     public boolean moreRam = false;
     public int ramMb = 4096;
     public String iconPath = "";
+    /** Своя папка игры. Пусто — папка сборки внутри лаунчера. Существующую папку лаунчер не очищает. */
+    public String gameDir = "";
     public long createdAt = System.currentTimeMillis();
 
     /** Ванильная сборка идёт без загрузчика модов. */
@@ -50,6 +52,9 @@ public final class BuildSpec {
         if (mcVersion == null || mcVersion.isBlank()) return "Выберите версию Minecraft";
         if (usesLoader() && (loader == null || loader.isBlank())) return "Выберите загрузчик";
         if (ramMb < 1024 || ramMb > 32768) return "Память должна быть от 1 до 32 ГБ";
+        if (gameDir != null && !gameDir.isBlank() && !java.nio.file.Files.isDirectory(java.nio.file.Path.of(gameDir))) {
+            return "Выбранная папка игры не найдена";
+        }
         return null;
     }
 
@@ -67,6 +72,7 @@ public final class BuildSpec {
         m.put("moreRam", moreRam);
         m.put("ramMb", ramMb);
         m.put("iconPath", iconPath);
+        m.put("gameDir", gameDir);
         m.put("createdAt", createdAt);
         return m;
     }
@@ -89,6 +95,7 @@ public final class BuildSpec {
         b.moreRam = Json.bool(m, "moreRam", false);
         b.ramMb = Json.integer(m, "ramMb", 4096);
         b.iconPath = Json.str(m, "iconPath", "");
+        b.gameDir = Json.str(m, "gameDir", "");
         b.createdAt = Json.lng(m, "createdAt", System.currentTimeMillis());
         return b;
     }

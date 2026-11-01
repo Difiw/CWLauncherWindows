@@ -29,7 +29,7 @@ import static ru.cw.launcher.ui.SettingsKit.s;
  */
 final class Shell extends JPanel {
 
-    enum Target {HOME, NEWS, BUILDS, SERVERS, PROFILE, SETTINGS, VERSIONS}
+    enum Target {HOME, NEWS, BUILDS, SERVERS, PROFILE, SETTINGS, ABOUT, VERSIONS}
 
     private final MainWindow mw;
     private final LauncherApp app;
@@ -39,8 +39,6 @@ final class Shell extends JPanel {
     private final Button bMax = new Button("", Glyph.MAX, Kind.FLAT).size(46, 40).iconSize(16);
     private final Button bClose = new Button("", Glyph.CLOSE, Kind.FLAT).size(46, 40).iconSize(18);
     private JComponent page;
-    private static BufferedImage cachedLogo;
-    private static boolean logoLoaded;
 
     Shell(MainWindow mw, LauncherApp app) {
         super(null);
@@ -180,12 +178,13 @@ final class Shell extends JPanel {
     // ------------------------------------------------------------------ меню слева
 
     private final class SideNav extends JPanel {
-        private final NavItem home = new NavItem(Tr.t("Главная", "Home"), Glyph.HOME, 20f, 30);
-        private final NavItem news = new NavItem(Tr.t("Новости", "News"), Glyph.NEWS, 20f, 30);
-        private final NavItem buildsNav = new NavItem(Tr.t("Сборки", "Builds"), Glyph.LAYERS, 20f, 30);
-        private final NavItem servers = new NavItem(Tr.t("Серверы", "Servers"), Glyph.SERVERS, 20f, 30);
-        private final NavItem profile = new NavItem(Tr.t("Профиль", "Profile"), Glyph.USER, 20f, 30);
-        private final NavItem settings = new NavItem(Tr.t("Настройки", "Settings"), Glyph.GEAR, 20f, 30);
+        private final NavItem home = new SideItem(Tr.t("Главная", "Home"), Glyph.HOME, 20f, 30);
+        private final NavItem news = new SideItem(Tr.t("Новости", "News"), Glyph.NEWS, 20f, 30);
+        private final NavItem buildsNav = new SideItem(Tr.t("Сборки", "Builds"), Glyph.LAYERS, 20f, 30);
+        private final NavItem servers = new SideItem(Tr.t("Серверы", "Servers"), Glyph.SERVERS, 20f, 30);
+        private final NavItem profile = new SideItem(Tr.t("Профиль", "Profile"), Glyph.USER, 20f, 30);
+        private final NavItem settings = new SideItem(Tr.t("Настройки", "Settings"), Glyph.GEAR, 20f, 30);
+        private final NavItem about = new SideItem(Tr.t("О лаунчере", "About"), Glyph.INFO, 20f, 30);
         private final Social site = new Social(Tr.t("Сайт сервера", "Server website"), Brand.SITE);
         private final Social telegram = new Social("Telegram", Brand.TELEGRAM);
         private final Social discord = new Social("Discord", Brand.DISCORD);
@@ -203,14 +202,15 @@ final class Shell extends JPanel {
             servers.addActionListener(e -> mw.navigate(mw::openServers));
             profile.addActionListener(e -> mw.navigate(mw::openProfile));
             settings.addActionListener(e -> mw.openSettings(0));
+            about.addActionListener(e -> mw.navigate(mw::openAbout));
             site.addActionListener(e -> mw.openUrl("https://commonworld.ru/index.php"));
             telegram.addActionListener(e -> mw.openUrl(app.cfg.telegramUrl));
             discord.addActionListener(e -> mw.openUrl(app.cfg.discordUrl));
             support.addActionListener(e -> mw.openUrl(app.cfg.supportUrl));
-            for (JComponent c : new JComponent[]{home, news, buildsNav, servers, profile, settings, site, telegram, discord, support, account}) {
+            for (JComponent c : new JComponent[]{home, news, buildsNav, servers, profile, settings, about, site, telegram, discord, support, account}) {
                 add(c);
             }
-            logo = loadLogo();
+            logo = LogoArt.logo();
             refresh();
         }
 
@@ -221,6 +221,7 @@ final class Shell extends JPanel {
             servers.setActive(t == Target.SERVERS);
             profile.setActive(t == Target.PROFILE);
             settings.setActive(t == Target.SETTINGS);
+            about.setActive(t == Target.ABOUT);
         }
 
         void refresh() {
@@ -240,61 +241,6 @@ final class Shell extends JPanel {
             }
         }
 
-        /** Логотип вырезается один раз за запуск: пересборка окна (язык, масштаб) его не пересчитывает. */
-        private BufferedImage loadLogo() {
-            if (!logoLoaded) {
-                cachedLogo = cutLogo();
-                logoLoaded = true;
-            }
-            return cachedLogo;
-        }
-
-        /** Логотип вырезается из макета главного экрана: другого файла с ним нет. */
-        private BufferedImage cutLogo() {
-            try {
-                Path ref = Path.of("assets", "ui", "main-reference.png");
-                if (!Files.isRegularFile(ref)) return null;
-                BufferedImage img = ImageIO.read(ref.toFile());
-                if (img == null) return null;
-                double sx = img.getWidth() / 1586.0;
-                double sy = img.getHeight() / 991.0;
-                int x = (int) (58 * sx);
-                int y = (int) (26 * sy);
-                int w = (int) (196 * sx);
-                int h = (int) (206 * sy);
-                return cutOut(img.getSubimage(x, y, Math.min(w, img.getWidth() - x), Math.min(h, img.getHeight() - y)));
-            } catch (Exception e) {
-                Log.warn("Логотип: " + Log.reason(e));
-                return null;
-            }
-        }
-
-        /** Фон вырезки делается прозрачным: логотип не должен быть прямоугольником поверх картинки. */
-        private BufferedImage cutOut(BufferedImage src) {
-            int bgc = src.getRGB(2, 2);
-            int br = (bgc >> 16) & 255, bgr = (bgc >> 8) & 255, bb = bgc & 255;
-            BufferedImage out = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
-            for (int y = 0; y < src.getHeight(); y++) {
-                for (int x = 0; x < src.getWidth(); x++) {
-                    int p = src.getRGB(x, y);
-                    int r = (p >> 16) & 255, gg = (p >> 8) & 255, b = p & 255;
-                    int d = Math.max(Math.abs(r - br), Math.max(Math.abs(gg - bgr), Math.abs(b - bb)));
-                    int a = Math.max(0, Math.min(255, (d - 8) * 9));
-                    if (a == 0) continue;
-                    // Полупрозрачный край: убираем примесь фона из цвета.
-                    float t = a / 255f;
-                    int nr = clamp(Math.round((r - br * (1 - t)) / t));
-                    int ng = clamp(Math.round((gg - bgr * (1 - t)) / t));
-                    int nb = clamp(Math.round((b - bb * (1 - t)) / t));
-                    out.setRGB(x, y, (a << 24) | (nr << 16) | (ng << 8) | nb);
-                }
-            }
-            return out;
-        }
-
-        private int clamp(int v) {
-            return Math.max(0, Math.min(255, v));
-        }
 
         private int logoBottom() {
             return getHeight() < s(860) ? s(196) : s(240);
@@ -308,7 +254,7 @@ final class Shell extends JPanel {
             int y = logoBottom() + (tight ? s(8) : s(20));
             int step = tight ? s(60) : s(70);
             int ih = tight ? s(52) : s(60);
-            for (NavItem item : new NavItem[]{home, news, buildsNav, servers, profile, settings}) {
+            for (NavItem item : new NavItem[]{home, news, buildsNav, servers, profile, settings, about}) {
                 if (!item.isVisible()) continue;
                 item.setBounds(s(16), y, w - s(32), ih);
                 y += step;
@@ -334,18 +280,35 @@ final class Shell extends JPanel {
             SettingsKit.smooth(g2);
             int w = getWidth();
             int h = getHeight();
-            Color base = new Color(0x101B27);
-            if (SettingsKit.backdrop()) base = new Color(12, 20, 30, Math.min(200, SettingsKit.card().getAlpha() * 3 / 5));
-            g2.setColor(base);
+            g2.setColor(new Color(0x0B1520));
             g2.fillRect(0, 0, w, h);
-            g2.setColor(new Color(0x1B2735));
+            BufferedImage scene = scene(w, h);
+            if (scene != null) {
+                g2.drawImage(scene, 0, 0, null);
+                // Затемнение только при рисовании: сама картинка не меняется. Сверху темнее — читается логотип.
+                g2.setPaint(new GradientPaint(0, 0, new Color(6, 12, 22, 150), 0, h * 0.5f, new Color(6, 12, 22, 70)));
+                g2.fillRect(0, 0, w, h / 2);
+                g2.setPaint(new GradientPaint(0, h * 0.5f, new Color(6, 12, 22, 70), 0, h, new Color(6, 12, 22, 120)));
+                g2.fillRect(0, h / 2, w, h - h / 2);
+            } else {
+                g2.setPaint(new GradientPaint(0, 0, new Color(0x0F1B2A), 0, h, new Color(0x0A121C)));
+                g2.fillRect(0, 0, w, h);
+            }
+            g2.setColor(new Color(0x2A9FE0 + 0x66000000, true));
             g2.drawLine(w - 1, 0, w - 1, h);
             int lb = logoBottom();
             if (logo != null) {
-                int lh = lb - s(30);
+                int lh = lb - s(52);
                 int lw = (int) Math.round(lh * logo.getWidth() / (double) logo.getHeight());
                 g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-                g2.drawImage(logo, (w - lw) / 2, s(22), lw, lh, null);
+                g2.drawImage(logo, (w - lw) / 2, s(18), lw, lh, null);
+                // Линия с ромбом под логотипом.
+                int ly = lb - s(24);
+                int mid = w / 2;
+                g2.setColor(new Color(56, 198, 255, 190));
+                g2.drawLine(s(40), ly, mid - s(14), ly);
+                g2.drawLine(mid + s(14), ly, w - s(40), ly);
+                g2.drawPolygon(new int[]{mid, mid + s(6), mid, mid - s(6)}, new int[]{ly - s(6), ly, ly + s(6), ly}, 4);
             } else {
                 int size = lb - s(120);
                 g2.drawImage(Icons.appIcon(), (w - size) / 2, s(26), size, size, null);
@@ -355,19 +318,112 @@ final class Shell extends JPanel {
                 g2.drawString("COMMON", (w - fm.stringWidth("COMMON")) / 2, lb - s(50));
                 g2.drawString("WORLD", (w - fm.stringWidth("WORLD")) / 2, lb - s(16));
             }
+            // Версия: подпись по центру, по бокам тонкие линии.
             int ay = account.getY() - s(12);
-            g2.setColor(new Color(0x1E2B3A));
-            g2.drawLine(s(18), ay, w - s(18), ay);
             String ver = "CWLauncher v" + Log.VERSION;
-            g2.setFont(SettingsKit.font(Font.PLAIN, 13f));
-            g2.setColor(new Color(0x6F8093));
+            g2.setFont(SettingsKit.font(Font.PLAIN, 14f));
             FontMetrics vm = g2.getFontMetrics();
-            g2.drawString(ver, (w - vm.stringWidth(ver)) / 2, ay - s(10));
+            int vw = vm.stringWidth(ver);
+            int vy = ay - s(8);
+            g2.setColor(new Color(0xDCE8F5));
+            g2.drawString(ver, (w - vw) / 2, vy);
+            g2.setColor(new Color(56, 198, 255, 150));
+            int lineY = vy - vm.getAscent() / 2 + s(2);
+            g2.drawLine(s(18), lineY, (w - vw) / 2 - s(12), lineY);
+            g2.drawLine((w + vw) / 2 + s(12), lineY, w - s(18), lineY);
             g2.dispose();
+        }
+
+        private BufferedImage sceneCache;
+        private int sceneW;
+        private int sceneH;
+
+        /** Картинка панели по размеру: заполняет её целиком, лишнее по бокам обрезается. Считается один раз на размер. */
+        private BufferedImage scene(int w, int h) {
+            BufferedImage src = LogoArt.sidebar();
+            if (src == null || w <= 0 || h <= 0) return null;
+            if (sceneCache != null && sceneW == w && sceneH == h) return sceneCache;
+            BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = out.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            double scale = Math.max((double) w / src.getWidth(), (double) h / src.getHeight());
+            int dw = (int) Math.ceil(src.getWidth() * scale);
+            int dh = (int) Math.ceil(src.getHeight() * scale);
+            g.drawImage(src, (w - dw) / 2, (h - dh) / 2, dw, dh, null);
+            g.dispose();
+            sceneCache = out;
+            sceneW = w;
+            sceneH = h;
+            return out;
         }
 
         private int versionRow() {
             return s(22);
+        }
+    }
+
+    /**
+     * Кнопка бокового меню: тёмное стекло с голубой рамкой, значок в круге слева.
+     * Активная светится и заливается голубым, справа у неё небольшая засечка.
+     */
+    private static final class SideItem extends NavItem {
+
+        SideItem(String text, Glyph glyph, float textSize, int iconPx) {
+            super(text, glyph, textSize, iconPx);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            SettingsKit.smooth(g2);
+            int w = getWidth();
+            int h = getHeight();
+            boolean on = isActive();
+            boolean over = hovered();
+            float arc = SettingsKit.rr() + s(6);
+            RoundRectangle2D.Float body = new RoundRectangle2D.Float(s(2), s(2), w - s(4) - 1, h - s(4) - 1, arc, arc);
+            if (on) {
+                // Мягкое свечение вокруг активной кнопки.
+                for (int i = 3; i >= 1; i--) {
+                    g2.setColor(new Color(40, 190, 255, 22 * (4 - i)));
+                    g2.setStroke(new BasicStroke(s(2) + i * s(2)));
+                    g2.draw(body);
+                }
+                g2.setPaint(new GradientPaint(0, 0, new Color(18, 120, 190, 235), w, 0, new Color(10, 70, 120, 235)));
+            } else {
+                g2.setColor(over ? new Color(16, 46, 74, 225) : new Color(8, 20, 34, 185));
+            }
+            g2.fill(body);
+            g2.setStroke(new BasicStroke(on ? 1.8f : 1.2f));
+            g2.setColor(on ? new Color(70, 215, 255) : over ? new Color(56, 198, 255, 220) : new Color(40, 150, 220, 150));
+            g2.draw(body);
+
+            int badge = Math.min(h - s(14), s(46));
+            int bx = s(14);
+            int by = (h - badge) / 2;
+            g2.setPaint(new GradientPaint(0, by, on ? new Color(40, 150, 220) : new Color(24, 70, 108),
+                    0, by + badge, on ? new Color(16, 90, 150) : new Color(12, 38, 64)));
+            g2.fill(new java.awt.geom.Ellipse2D.Float(bx, by, badge, badge));
+            g2.setColor(on ? new Color(120, 225, 255, 200) : new Color(60, 160, 225, 130));
+            g2.setStroke(new BasicStroke(1.2f));
+            g2.draw(new java.awt.geom.Ellipse2D.Float(bx + 0.5f, by + 0.5f, badge - 1, badge - 1));
+            int ip = badge * 56 / 100;
+            SettingsKit.icon(glyph(), ip, on || over ? Color.WHITE : new Color(0xDCE8F5))
+                    .paintIcon(this, g2, bx + (badge - ip) / 2, by + (badge - ip) / 2);
+
+            g2.setFont(SettingsKit.font(Font.PLAIN, textSize()));
+            g2.setColor(Color.WHITE);
+            FontMetrics fm = g2.getFontMetrics();
+            int tx = bx + badge + s(16);
+            g2.drawString(SettingsKit.ellipsize(getText(), fm, w - tx - s(22)), tx, (h + fm.getAscent() - fm.getDescent()) / 2);
+            if (on) {
+                // Засечка на правом краю.
+                g2.setColor(new Color(70, 215, 255));
+                g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                int ex = w - s(8);
+                g2.drawPolyline(new int[]{ex, ex - s(6), ex}, new int[]{h / 2 - s(8), h / 2, h / 2 + s(8)}, 3);
+            }
+            g2.dispose();
         }
     }
 
@@ -408,8 +464,11 @@ final class Shell extends JPanel {
             SettingsKit.smooth(g2);
             int w = getWidth();
             int h = getHeight();
-            g2.setColor(hover ? SettingsKit.ACTIVE : new Color(0x16222F));
+            // Тёмное стекло с голубой рамкой, как у остальных элементов панели.
+            g2.setColor(hover ? new Color(20, 70, 110, 215) : new Color(8, 20, 34, 185));
             g2.fill(new RoundRectangle2D.Float(0, 0, w - 1, h - 1, SettingsKit.rr(), SettingsKit.rr()));
+            g2.setColor(hover ? new Color(56, 198, 255, 230) : new Color(40, 150, 220, 170));
+            g2.draw(new RoundRectangle2D.Float(0.5f, 0.5f, w - 2, h - 2, SettingsKit.rr(), SettingsKit.rr()));
             int is = w * 58 / 100;
             g2.translate((w - is) / 2.0, (h - is) / 2.0);
             g2.scale(is / 24.0, is / 24.0);
@@ -531,10 +590,11 @@ final class Shell extends JPanel {
             SettingsKit.smooth(g2);
             int w = getWidth();
             int h = getHeight();
-            if (hover) {
-                g2.setColor(new Color(0x16222F));
-                g2.fill(new RoundRectangle2D.Float(0, 0, w, h, SettingsKit.rr(), SettingsKit.rr()));
-            }
+            // Стеклянная карточка с голубой рамкой.
+            g2.setColor(hover ? new Color(14, 44, 70, 225) : new Color(8, 20, 34, 195));
+            g2.fill(new RoundRectangle2D.Float(0, 0, w - 1, h - 1, SettingsKit.rr() + s(4), SettingsKit.rr() + s(4)));
+            g2.setColor(hover ? new Color(56, 198, 255, 235) : new Color(40, 150, 220, 190));
+            g2.draw(new RoundRectangle2D.Float(0.5f, 0.5f, w - 2, h - 2, SettingsKit.rr() + s(4), SettingsKit.rr() + s(4)));
             int face = Math.min(s(60), h - s(26));
             int fy = (h - face) / 2;
             BufferedImage skin = null;

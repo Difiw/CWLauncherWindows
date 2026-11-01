@@ -2,6 +2,7 @@ package ru.cw.launcher.ui;
 
 import ru.cw.launcher.accounts.Account;
 import ru.cw.launcher.core.LauncherApp;
+import ru.cw.launcher.skin.ElySkin;
 import ru.cw.launcher.skin.PlayerSkin;
 import ru.cw.launcher.skin.SkinRenderer;
 import ru.cw.launcher.ui.SettingsKit.Button;
@@ -67,6 +68,51 @@ final class ProfilePage extends JPanel {
         doLayout();
         repaint();
         mw.syncFromState();
+        // Скин с Ely.by догружается в фоне; при свежем кэше запроса нет вовсе.
+        app.refreshElySkin(app.account(), false, this::afterElySkin);
+    }
+
+    /** Ответ Ely пришёл: перерисовать аватары и скины, не трогая остальное. */
+    private void afterElySkin() {
+        if (!isDisplayable()) return;
+        PlayerSkin.refresh(app.account());
+        accounts.repaint();
+        header.repaint();
+        skins.fill();
+    }
+
+    private void refreshEly() {
+        Account a = app.account();
+        if (!ElySkin.applies(a)) return;
+        app.refreshElySkin(a, true, () -> {
+            afterElySkin();
+            Account now = app.account();
+            if (!isDisplayable() || now == null || !a.id.equals(now.id)) return;
+            if (ElySkin.state(a) == ElySkin.State.ERROR) {
+                Dialogs.toast(mw, ElySkin.error(a), SettingsKit.RED);
+            } else {
+                Dialogs.toast(mw, ElySkin.state(a) == ElySkin.State.NONE
+                        ? Tr.t("На Ely.by скин не установлен", "No skin is set on Ely.by")
+                        : Tr.t("Скин Ely.by обновлён", "Ely.by skin updated"), SettingsKit.GREEN);
+            }
+        });
+        skins.fill();
+    }
+
+    private void useEly() {
+        try {
+            PlayerSkin.chooseEly(app.account());
+            reload();
+        } catch (Exception e) {
+            Dialogs.error(mw, Tr.t("Скин не выбран.", "The skin was not selected."), Log.reason(e), null);
+        }
+    }
+
+    /** Копия скина с Ely.by открывается в редакторе как новый локальный скин. */
+    private void editEly() {
+        ElySkin.Entry ely = ElySkin.cached(app.account());
+        if (ely == null) return;
+        mw.openSkinEditor(app.account(), null, ely.image(), "ely-" + app.account().username);
     }
 
     @Override
@@ -148,7 +194,13 @@ final class ProfilePage extends JPanel {
 
     private void rename(Account a) {
         if (a.type == Account.Type.ELY) {
-            Dialogs.info(mw, Lang.t("prof_ely_name"));
+            // Ник Ely.by хранится на сервере Ely: лаунчер его не меняет, но объясняет почему.
+            if (Dialogs.ask(mw, Tr.t("Ник аккаунта Ely.by меняется только на сайте Ely.by, лаунчер его изменить не может. "
+                            + "После смены ника войдите в аккаунт заново.",
+                    "An Ely.by name can only be changed on the Ely.by site. Sign in again after changing it."),
+                    Tr.t("Открыть Ely.by", "Open Ely.by"), Tr.t("Закрыть", "Close"))) {
+                ru.cw.launcher.util.Utils.openUrl("https://account.ely.by/");
+            }
             return;
         }
         String nick = Dialogs.input(mw, Tr.t("Переименовать аккаунт", "Rename account"), Lang.t("prof_nick_bad"),
@@ -259,6 +311,8 @@ final class ProfilePage extends JPanel {
             for (Account a : app.accounts().all()) {
                 Row r = new Row(a, active != null && a.id.equals(active.id));
                 list.add(r);
+                // Голова в строке у неактивных Ely-аккаунтов тоже берётся с Ely.by.
+                if (!r.active) ElySkin.request(a, false, list::repaint);
                 r.setBounds(0, y, 10, s(70));
                 y += s(78);
             }
@@ -400,6 +454,7 @@ final class ProfilePage extends JPanel {
         private final Button copy = new Button("", Glyph.COPY, Kind.FLAT).size(40, 40).iconSize(18);
         private final Button switchAcc = new Button(Tr.t("Сменить аккаунт", "Switch account"), Glyph.RESET, Kind.GHOST);
         private final Button rename = new Button(Tr.t("Переименовать", "Rename"), Glyph.BRUSH, Kind.GHOST);
+        private final Button deleteAcc = new Button(Tr.t("Удалить аккаунт", "Delete account"), Glyph.TRASH, Kind.DANGER);
         private final Button addLocal = new Button(Tr.t("Локальный аккаунт", "Local account"), Glyph.PLUS, Kind.PRIMARY);
         private final Button addEly = new Button(Tr.t("Войти через Ely.by", "Sign in with Ely.by"), Glyph.LINK, Kind.GHOST);
         private Account account;
@@ -409,7 +464,10 @@ final class ProfilePage extends JPanel {
             setOpaque(false);
             uuid.setEditable(false);
             uuid.setFont(Theme.MONO.deriveFont(SettingsKit.sf(14f)));
-            for (JComponent c : new JComponent[]{name, uuidCaption, uuid, copy, switchAcc, rename, addLocal, addEly}) add(c);
+            for (JComponent c : new JComponent[]{name, uuidCaption, uuid, copy, switchAcc, rename, deleteAcc, addLocal, addEly}) add(c);
+            deleteAcc.addActionListener(e -> {
+                if (account != null) delete(account);
+            });
             copy.setToolTipText(Tr.t("Скопировать UUID", "Copy UUID"));
             copy.addActionListener(e -> {
                 Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(uuid.getText()), null);
@@ -437,10 +495,10 @@ final class ProfilePage extends JPanel {
             boolean has = account != null;
             name.setText(has ? account.username : Tr.t("Нет аккаунта", "No account"));
             uuid.setText(has ? account.uuid : "");
-            for (JComponent c : new JComponent[]{uuidCaption, uuid, copy, switchAcc, rename}) c.setVisible(has);
+            for (JComponent c : new JComponent[]{uuidCaption, uuid, copy, switchAcc, rename, deleteAcc}) c.setVisible(has);
             addLocal.setVisible(!has);
             addEly.setVisible(!has);
-            rename.setEnabled(has && account.type != Account.Type.ELY);
+            // У Ely кнопка не гаснет молча: по нажатию объясняется, где меняется ник.
             rename.setToolTipText(has && account.type == Account.Type.ELY ? Lang.t("prof_ely_name") : null);
             doLayout();
             repaint();
@@ -461,8 +519,13 @@ final class ProfilePage extends JPanel {
             uuidCaption.setBounds(fx, s(104), s(200), s(20));
             uuid.setBounds(fx, s(126), Math.max(s(200), Math.min(s(440), textRight - fx - s(48))), s(38));
             copy.setBounds(uuid.getX() + uuid.getWidth() + s(6), s(125), s(40), s(40));
-            switchAcc.setBounds(w - p - bw, s(28), bw, s(52));
-            rename.setBounds(w - p - bw, s(92), bw, s(52));
+            // Все действия с аккаунтом — одной колонкой справа, удаление последним.
+            int bh = s(42);
+            int gap = s(8);
+            int by = (getHeight() - bh * 3 - gap * 2) / 2;
+            switchAcc.setBounds(w - p - bw, by, bw, bh);
+            rename.setBounds(w - p - bw, by + bh + gap, bw, bh);
+            deleteAcc.setBounds(w - p - bw, by + (bh + gap) * 2, bw, bh);
             addLocal.setBounds(fx, s(92), s(230), s(52));
             addEly.setBounds(fx + s(244), s(92), s(250), s(52));
         }
@@ -511,16 +574,28 @@ final class ProfilePage extends JPanel {
 
     // ------------------------------------------------------------------ скины
 
+    /** Что сейчас в большом просмотре: картинка, модель и подпись снизу. */
+    private record Shown(BufferedImage image, boolean slim, String caption, String note, String empty) {
+    }
+
+    private static String model(boolean slim) {
+        return slim ? "Alex" : "Steve";
+    }
+
     private final class Skins extends JPanel {
         private final JLabel head = SettingsKit.label(Tr.t("Скины", "Skins"), 22f, Font.BOLD, SettingsKit.TEXT);
         private final Button upload = new Button(Tr.t("Загрузить скин", "Upload skin"), Glyph.PLUS, Kind.PRIMARY);
         private final Button create = new Button(Tr.t("Создать скин", "Create skin"), Glyph.BRUSH, Kind.GHOST);
+        private final Button refresh = new Button(Tr.t("Обновить скин", "Refresh skin"), Glyph.RESET, Kind.GHOST);
         private final Button reorder = new Button(Tr.t("Изменить порядок", "Reorder"), Glyph.LAYERS, Kind.GHOST);
-        private final Button deleteAcc = new Button(Tr.t("Удалить аккаунт", "Delete account"), Glyph.TRASH, Kind.DANGER);
         private final Preview preview = new Preview();
         private final JPanel grid = new JPanel(null);
         private final JScrollPane scroll = new JScrollPane(grid);
         private final JLabel empty = SettingsKit.label("", 15.5f, Font.PLAIN, new Color(0xB5C2D0));
+        private final JLabel hint = SettingsKit.label(Tr.t(
+                "Выбранный свой скин при запуске игры записывается на Ely.by.",
+                "A selected custom skin is uploaded to Ely.by when the game starts."),
+                13f, Font.PLAIN, SettingsKit.MUTED);
         private boolean ordering;
         private Tile dragged;
 
@@ -535,18 +610,19 @@ final class ProfilePage extends JPanel {
             scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
             SettingsKit.styleScroll(scroll);
             scroll.getVerticalScrollBar().setUnitIncrement(s(30));
-            for (JComponent c : new JComponent[]{head, upload, create, reorder, deleteAcc, preview, scroll, empty}) add(c);
+            empty.setHorizontalAlignment(SwingConstants.CENTER);
+            empty.setVerticalAlignment(SwingConstants.CENTER);
+            for (JComponent c : new JComponent[]{head, upload, create, refresh, reorder, preview, scroll, empty, hint}) add(c);
             upload.setFont(SettingsKit.font(Font.BOLD, 16f));
             upload.addActionListener(e -> upload());
             create.addActionListener(e -> createSkin());
+            refresh.setToolTipText(Tr.t("Заново скачать скин с Ely.by", "Download the skin from Ely.by again"));
+            refresh.addActionListener(e -> refreshEly());
             reorder.addActionListener(e -> {
                 ordering = !ordering;
                 reorder.setText(ordering ? Tr.t("Готово", "Done") : Tr.t("Изменить порядок", "Reorder"));
                 for (Component c : grid.getComponents()) if (c instanceof Tile t) t.updateCursor();
                 repaint();
-            });
-            deleteAcc.addActionListener(e -> {
-                if (app.account() != null) delete(app.account());
             });
             scroll.getViewport().addComponentListener(new java.awt.event.ComponentAdapter() {
                 @Override
@@ -560,23 +636,61 @@ final class ProfilePage extends JPanel {
             grid.removeAll();
             Account a = app.account();
             boolean has = a != null;
+            boolean ely = ElySkin.applies(a);
+            boolean loading = ely && ElySkin.state(a) == ElySkin.State.LOADING;
             upload.setVisible(has);
             create.setVisible(has);
-            deleteAcc.setVisible(has);
+            refresh.setVisible(ely);
+            hint.setVisible(ely);
+            refresh.setEnabled(!loading);
+            refresh.setText(loading ? Tr.t("Загрузка…", "Loading…") : Tr.t("Обновить скин", "Refresh skin"));
             List<PlayerSkin.SkinEntry> list = has ? PlayerSkin.all(a) : List.of();
             reorder.setVisible(has && list.size() > 1);
-            PlayerSkin.SkinEntry used = null;
-            for (PlayerSkin.SkinEntry skin : list) {
-                grid.add(new Tile(skin));
-                if (skin.selected()) used = skin;
-            }
-            if (used == null && !list.isEmpty()) used = list.get(0);
-            preview.show(used == null ? null : used.file());
+            if (ely) grid.add(new Tile(null));
+            for (PlayerSkin.SkinEntry skin : list) grid.add(new Tile(skin));
+            preview.show(used());
             empty.setText(!has ? Tr.t("Создайте аккаунт, чтобы добавить скины.", "Create an account to add skins.")
-                    : list.isEmpty() ? Tr.t("Скинов пока нет. Нажмите «Загрузить скин».", "No skins yet. Press “Upload skin”.") : "");
+                    : grid.getComponentCount() == 0
+                    ? "<html><div style='text-align:center'>" + Tr.t("Скинов пока нет", "No skins yet")
+                    + "<br><span style='color:#8FA0B3'>" + Tr.t("Загрузите PNG 64×64 или нарисуйте скин в редакторе.",
+                    "Upload a 64×64 PNG or draw one in the editor.") + "</span></div></html>"
+                    : "");
             empty.setVisible(!empty.getText().isEmpty());
             doLayout();
             layoutGrid();
+            repaint();
+        }
+
+        /** Скин, в котором аккаунт сейчас играет. */
+        Shown used() {
+            Account a = app.account();
+            if (a == null) return new Shown(null, false, "", "", Tr.t("Нет аккаунта", "No account"));
+            for (PlayerSkin.SkinEntry s : PlayerSkin.all(a)) {
+                if (s.selected() && !PlayerSkin.usesEly(a)) return local(s);
+            }
+            if (ElySkin.applies(a)) return ely(a);
+            return new Shown(null, false, "", "", Tr.t("Нет скина", "No skin"));
+        }
+
+        Shown local(PlayerSkin.SkinEntry s) {
+            boolean slim = slim(s.file());
+            return new Shown(image(s.file()), slim, s.name() + " · " + model(slim), "", Tr.t("Скин не читается", "Unreadable skin"));
+        }
+
+        Shown ely(Account a) {
+            ElySkin.Entry e = ElySkin.cached(a);
+            ElySkin.State st = ElySkin.state(a);
+            String note = st == ElySkin.State.ERROR && e != null
+                    ? Tr.t("Не удалось обновить, показан сохранённый скин", "Update failed, showing the saved skin")
+                    : st == ElySkin.State.LOADING && e != null ? Tr.t("Проверяем обновления…", "Checking for updates…") : "";
+            String none = switch (st) {
+                case LOADING, IDLE -> Tr.t("Загрузка скина с Ely.by…", "Loading the Ely.by skin…");
+                case NONE -> Tr.t("На Ely.by скин не установлен", "No skin is set on Ely.by");
+                case ERROR -> ElySkin.error(a);
+                case READY -> Tr.t("Скин не прочитан", "The skin could not be read");
+            };
+            return e == null ? new Shown(null, false, "Ely.by", "", none)
+                    : new Shown(e.image(), e.slim(), "Ely.by · " + model(e.slim()), note, "");
         }
 
         @Override
@@ -584,20 +698,25 @@ final class ProfilePage extends JPanel {
             int w = getWidth();
             int h = getHeight();
             int p = s(20);
-            head.setBounds(p, s(18), s(300), s(40));
+            head.setBounds(p, s(18), s(200), s(40));
             int bw = s(190);
-            upload.setBounds(w - p - bw, s(14), bw, s(50));
-            create.setBounds(upload.getX() - s(12) - bw, s(14), bw, s(50));
-            reorder.setBounds(create.getX() - s(12) - s(210), s(14), s(210), s(50));
+            int x = w - p;
+            for (Button b : new Button[]{upload, create, refresh, reorder}) {
+                if (!b.isVisible()) continue;
+                int width = b == reorder ? s(210) : b == refresh ? s(180) : bw;
+                x -= width;
+                b.setBounds(x, s(14), width, s(50));
+                x -= s(12);
+            }
             int top = s(78);
-            int footer = s(76);
-            int bodyH = h - top - footer - s(14);
-            int pw = Math.min(s(330), Math.max(s(220), (w - p * 2) * 34 / 100));
+            int bodyH = h - top - p;
+            int pw = Math.min(s(340), Math.max(s(240), (w - p * 2) * 34 / 100));
             preview.setBounds(p, top, pw, bodyH);
             int gx = p + pw + s(16);
-            scroll.setBounds(gx, top, w - p - gx, bodyH);
-            empty.setBounds(gx + s(6), top + s(10), w - p - gx, s(30));
-            deleteAcc.setBounds(p, h - footer + s(14), s(220), s(48));
+            int hintH = hint.isVisible() ? s(28) : 0;
+            scroll.setBounds(gx, top, w - p - gx, bodyH - hintH);
+            empty.setBounds(gx, top, w - p - gx, bodyH - hintH);
+            hint.setBounds(gx + s(2), top + bodyH - s(20), w - p - gx, s(20));
             layoutGrid();
         }
 
@@ -614,14 +733,15 @@ final class ProfilePage extends JPanel {
                 double d = Point.distance(p.x, p.y, b.getCenterX(), b.getCenterY());
                 if (d < best) { best = d; target = i; }
             }
-            if (target == from) return;
+            // Плитка Ely.by всегда первая и не переставляется.
+            if (target == from || (cs[target] instanceof Tile t && t.entry == null)) return;
             grid.setComponentZOrder(tile, target);
             layoutGrid();
         }
 
         private void saveOrder() {
             List<Path> files = new ArrayList<>();
-            for (Component c : grid.getComponents()) if (c instanceof Tile t) files.add(t.entry.file());
+            for (Component c : grid.getComponents()) if (c instanceof Tile t && t.entry != null) files.add(t.entry.file());
             try {
                 PlayerSkin.saveOrder(app.account(), files);
             } catch (Exception e) {
@@ -655,17 +775,13 @@ final class ProfilePage extends JPanel {
             Graphics2D g2 = (Graphics2D) g.create();
             SettingsKit.smooth(g2);
             card(g2, getWidth(), getHeight());
-            int y = getHeight() - s(76);
-            g2.setColor(SettingsKit.CARD_LINE);
-            g2.drawLine(s(20), y, getWidth() - s(20), y);
             g2.dispose();
         }
     }
 
     /** Большой объёмный просмотр выбранного скина. Тянуть мышью — поворот, двойной щелчок — анфас. */
     private final class Preview extends JComponent {
-        private BufferedImage skin;
-        private boolean slimArms;
+        private Shown shown = new Shown(null, false, "", "", "");
         private double yaw = -0.45;
         private double pitch = -0.12;
         private double zoom = 1;
@@ -720,9 +836,8 @@ final class ProfilePage extends JPanel {
             addMouseWheelListener(m);
         }
 
-        void show(Path file) {
-            skin = image(file);
-            slimArms = slim(file);
+        void show(Shown s) {
+            shown = s == null ? new Shown(null, false, "", "", "") : s;
             repaint();
         }
 
@@ -739,59 +854,120 @@ final class ProfilePage extends JPanel {
             g2.fill(clip);
             g2.setColor(SettingsKit.CARD_LINE);
             g2.draw(clip);
+            BufferedImage skin = shown.image();
             if (skin == null) {
+                int is = s(56);
+                SettingsKit.icon(Glyph.USER, is, new Color(0x5D6E82)).paintIcon(this, g2, (w - is) / 2, h / 2 - is - s(14));
                 g2.setFont(SettingsKit.font(Font.PLAIN, 15f));
                 g2.setColor(new Color(0x8FA0B3));
-                String t = Tr.t("Нет скина", "No skin");
                 FontMetrics fm = g2.getFontMetrics();
-                g2.drawString(t, (w - fm.stringWidth(t)) / 2, h / 2);
+                int y = h / 2 + s(12);
+                for (String line : wrap(shown.empty(), fm, w - s(40))) {
+                    g2.drawString(line, (w - fm.stringWidth(line)) / 2, y);
+                    y += fm.getHeight();
+                }
                 g2.dispose();
                 return;
             }
-            int fh = (int) (Math.min(h * 0.80, w * 1.55) * zoom);
-            int top = (h - fh) / 2 - s(6);
+            int capH = shown.caption().isEmpty() ? 0 : s(shown.note().isEmpty() ? 44 : 64);
+            int area = h - capH;
+            int fh = (int) (Math.min(area * 0.84, w * 1.55) * zoom);
+            int top = (area - fh) / 2;
             g2.setColor(new Color(0, 0, 0, 90));
             g2.fill(new Ellipse2D.Float(w / 2f - fh * 0.2f, top + fh - fh * 0.025f, fh * 0.4f, fh * 0.06f));
-            g2.clip(clip);
-            SkinRenderer.paint(g2, skin, slimArms, yaw, pitch, w / 2, top + fh / 2, fh,
+            Graphics2D fig = (Graphics2D) g2.create();
+            fig.clip(new Rectangle(0, 0, w, area));
+            fig.clip(clip);
+            SkinRenderer.paint(fig, skin, shown.slim(), yaw, pitch, w / 2, top + fh / 2, fh,
                     SkinRenderer.BASE | SkinRenderer.OUTER);
+            fig.dispose();
+            if (capH > 0) {
+                g2.setFont(SettingsKit.font(Font.BOLD, 14f));
+                FontMetrics fm = g2.getFontMetrics();
+                String cap = SettingsKit.ellipsize(shown.caption(), fm, w - s(40));
+                int y = h - capH + s(26);
+                g2.setColor(new Color(0xDCE4EC));
+                g2.drawString(cap, (w - fm.stringWidth(cap)) / 2, y);
+                if (!shown.note().isEmpty()) {
+                    g2.setFont(SettingsKit.font(Font.PLAIN, 12.5f));
+                    FontMetrics nf = g2.getFontMetrics();
+                    String note = SettingsKit.ellipsize(shown.note(), nf, w - s(24));
+                    g2.setColor(SettingsKit.AMBER);
+                    g2.drawString(note, (w - nf.stringWidth(note)) / 2, y + s(20));
+                }
+            }
             g2.dispose();
         }
     }
 
-    /** Плитка скина: фигура, имя файла без расширения, отметка «Используется». */
+    /** Разбивает подсказку на строки по ширине. */
+    private static List<String> wrap(String text, FontMetrics fm, int max) {
+        List<String> lines = new ArrayList<>();
+        StringBuilder line = new StringBuilder();
+        for (String word : (text == null ? "" : text).split("\\s+")) {
+            if (word.isEmpty()) continue;
+            String next = line.length() == 0 ? word : line + " " + word;
+            if (fm.stringWidth(next) > max && line.length() > 0) {
+                lines.add(line.toString());
+                line = new StringBuilder(word);
+            } else {
+                line = new StringBuilder(next);
+            }
+        }
+        if (line.length() > 0) lines.add(line.toString());
+        return lines;
+    }
+
+    /**
+     * Плитка скина: фигура, имя без расширения, отметка «Используется».
+     * entry == null — скин с Ely.by: его нельзя удалить, но можно выбрать или обновить.
+     */
     private final class Tile extends JComponent {
         private final PlayerSkin.SkinEntry entry;
-        private final BufferedImage skin;
-        private final boolean slimArms;
+        private final Shown shown;
+        private final boolean selected;
+        private final String label;
         private boolean hover;
 
         Tile(PlayerSkin.SkinEntry entry) {
             this.entry = entry;
-            this.skin = image(entry.file());
-            this.slimArms = slim(entry.file());
+            Account a = app.account();
+            boolean usesEly = PlayerSkin.usesEly(a);
+            this.shown = entry == null ? skins.ely(a) : skins.local(entry);
+            this.selected = entry == null ? usesEly : entry.selected() && !usesEly;
+            this.label = entry == null ? "Ely.by" : entry.name();
             updateCursor();
-            setToolTipText(entry.name());
+            setToolTipText(entry == null ? Tr.t("Скин, установленный на Ely.by", "The skin set on Ely.by") : entry.name());
             addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
                     if (skins.ordering && SwingUtilities.isLeftMouseButton(e)) {
-                        skins.dragged = Tile.this;
+                        if (entry != null) skins.dragged = Tile.this;
                         return;
                     }
-                    boolean trash = hover && e.getX() > getWidth() - s(40) && e.getY() < s(40);
+                    boolean trash = entry != null && hover && e.getX() > getWidth() - s(40) && e.getY() < s(40);
                     if (SwingUtilities.isRightMouseButton(e)) {
-                        JPopupMenu m = SettingsKit.menu(s(220),
-                                new MenuItem(Tr.t("Использовать", "Use"), Glyph.CHECK, () -> use(entry)),
-                                new MenuItem(Tr.t("Изменить скин", "Edit skin"), Glyph.BRUSH, () -> editSkin(entry)),
-                                new MenuItem(Tr.t("Удалить скин", "Delete skin"), Glyph.TRASH, () -> removeSkin(entry), true));
+                        List<MenuItem> items = new ArrayList<>();
+                        if (entry == null) {
+                            items.add(new MenuItem(Tr.t("Использовать", "Use"), Glyph.CHECK, ProfilePage.this::useEly));
+                            items.add(new MenuItem(Tr.t("Обновить скин", "Refresh skin"), Glyph.RESET, ProfilePage.this::refreshEly));
+                            if (shown.image() != null) {
+                                items.add(new MenuItem(Tr.t("Изменить копию", "Edit a copy"), Glyph.BRUSH, ProfilePage.this::editEly));
+                            }
+                        } else {
+                            items.add(new MenuItem(Tr.t("Использовать", "Use"), Glyph.CHECK, () -> use(entry)));
+                            items.add(new MenuItem(Tr.t("Изменить скин", "Edit skin"), Glyph.BRUSH, () -> editSkin(entry)));
+                            items.add(new MenuItem(Tr.t("Удалить скин", "Delete skin"), Glyph.TRASH, () -> removeSkin(entry), true));
+                        }
+                        JPopupMenu m = SettingsKit.menu(s(220), items.toArray(new MenuItem[0]));
                         m.show(Tile.this, e.getX(), e.getY());
                     } else if (trash) {
                         removeSkin(entry);
-                    } else if (!entry.selected()) {
-                        use(entry);
+                    } else if (!selected) {
+                        if (entry == null) useEly();
+                        else use(entry);
                     } else {
-                        skins.preview.show(entry.file());
+                        skins.preview.show(shown);
                     }
                 }
 
@@ -806,16 +982,14 @@ final class ProfilePage extends JPanel {
                 @Override
                 public void mouseEntered(MouseEvent e) {
                     hover = true;
-                    skins.preview.show(entry.file());
+                    if (shown.image() != null) skins.preview.show(shown);
                     repaint();
                 }
 
                 @Override
                 public void mouseExited(MouseEvent e) {
                     hover = false;
-                    PlayerSkin.SkinEntry used = null;
-                    for (PlayerSkin.SkinEntry s : PlayerSkin.all(app.account())) if (s.selected()) used = s;
-                    skins.preview.show(used == null ? entry.file() : used.file());
+                    skins.preview.show(skins.used());
                     repaint();
                 }
             });
@@ -828,7 +1002,7 @@ final class ProfilePage extends JPanel {
         }
 
         void updateCursor() {
-            setCursor(skins.ordering ? SettingsKit.grab(false) : Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setCursor(skins.ordering && entry != null ? SettingsKit.grab(false) : Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         }
 
         @Override
@@ -840,19 +1014,43 @@ final class ProfilePage extends JPanel {
             int h = getHeight() - nameH;
             int r = SettingsKit.rr() + s(2);
             Shape box = new RoundRectangle2D.Float(1, 1, w - 3, h - 3, r, r);
-            g2.setColor(entry.selected() ? new Color(0x14243A) : hover ? new Color(0x182535) : new Color(0x121C28));
+            g2.setColor(selected ? new Color(0x14243A) : hover ? new Color(0x182535) : new Color(0x121C28));
             g2.fill(box);
-            g2.setStroke(new BasicStroke(entry.selected() ? 2.5f : 1f));
-            g2.setColor(entry.selected() ? SettingsKit.ACCENT : hover ? SettingsKit.FIELD_HOVER : SettingsKit.CARD_LINE);
+            g2.setStroke(new BasicStroke(selected ? 2.5f : 1f));
+            g2.setColor(selected ? SettingsKit.ACCENT : hover ? SettingsKit.FIELD_HOVER : SettingsKit.CARD_LINE);
             g2.draw(box);
+            BufferedImage skin = shown.image();
             if (skin != null) {
                 int fh = (int) (h * 0.80);
                 Shape old = g2.getClip();
                 g2.clip(box);
-                SkinRenderer.paint(g2, skin, slimArms, 0, w / 2, (h - fh) / 2 - s(4), fh);
+                SkinRenderer.paint(g2, skin, shown.slim(), 0, w / 2, (h - fh) / 2 - s(4), fh);
                 g2.setClip(old);
+            } else if (entry == null) {
+                // Скин Ely ещё не скачан: состояние вместо пустой рамки.
+                ElySkin.State st = ElySkin.state(app.account());
+                String t = switch (st) {
+                    case LOADING, IDLE -> Tr.t("Загрузка…", "Loading…");
+                    case NONE -> Tr.t("Скин не установлен", "No skin set");
+                    case ERROR, READY -> Tr.t("Не загрузился", "Not loaded");
+                };
+                g2.setFont(SettingsKit.font(Font.PLAIN, 13f));
+                g2.setColor(st == ElySkin.State.ERROR ? SettingsKit.AMBER : new Color(0x8FA0B3));
+                FontMetrics fm = g2.getFontMetrics();
+                int y = h / 2 - (wrap(t, fm, w - s(20)).size() - 1) * fm.getHeight() / 2;
+                for (String line : wrap(t, fm, w - s(20))) {
+                    g2.drawString(line, (w - fm.stringWidth(line)) / 2, y);
+                    y += fm.getHeight();
+                }
             }
-            if (entry.selected()) {
+            if (entry == null) {
+                // Метка источника в углу, как значок Ely.by в карточке аккаунта.
+                int d = s(22);
+                g2.setColor(SettingsKit.ACCENT);
+                g2.fill(new Ellipse2D.Float(s(9), s(9), d, d));
+                SettingsKit.icon(Glyph.LAYERS, s(12), Color.WHITE).paintIcon(this, g2, s(9) + (d - s(12)) / 2, s(9) + (d - s(12)) / 2);
+            }
+            if (selected) {
                 g2.setFont(SettingsKit.font(Font.BOLD, 12.5f));
                 FontMetrics fm = g2.getFontMetrics();
                 String t = Tr.t("Используется", "In use");
@@ -865,7 +1063,7 @@ final class ProfilePage extends JPanel {
                 g2.setColor(Color.WHITE);
                 g2.drawString(t, bx + s(9), by + (bh + fm.getAscent() - fm.getDescent()) / 2);
             }
-            if (hover) {
+            if (hover && entry != null) {
                 int bs = s(30);
                 int bx = w - bs - s(8);
                 g2.setColor(new Color(0x26141A));
@@ -875,7 +1073,7 @@ final class ProfilePage extends JPanel {
             g2.setFont(SettingsKit.font(Font.PLAIN, 14.5f));
             g2.setColor(new Color(0xDCE4EC));
             FontMetrics fm = g2.getFontMetrics();
-            String name = SettingsKit.ellipsize(entry.name(), fm, w - s(8));
+            String name = SettingsKit.ellipsize(label, fm, w - s(8));
             g2.drawString(name, (w - fm.stringWidth(name)) / 2, getHeight() - s(10));
             g2.dispose();
         }

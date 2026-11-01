@@ -114,6 +114,7 @@ public class MainWindow extends JFrame {
         if (settingsPage != null) settingsPage.dispose();
         settingsPage = null;
         buildsPage = null;
+        aboutPage = null;
         shell = new Shell(this, app);
         home = new HomePage(this, app);
         setContentPane(shell);
@@ -157,6 +158,14 @@ public class MainWindow extends JFrame {
 
     public void openSettings() {
         openSettings(0);
+    }
+
+    /** Пересоздаёт страницу настроек для другой версии игры; оболочка и остальные страницы не трогаются. */
+    void reopenSettings(int section, String gameVersion) {
+        if (settingsPage != null) settingsPage.dispose();
+        settingsPage = new SettingsWindow.Page(this, app, section, gameVersion);
+        shell.setPage(settingsPage, Shell.Target.SETTINGS);
+        settingsPage.requestFocusInWindow();
     }
 
     public void openSettings(int section) {
@@ -213,6 +222,20 @@ public class MainWindow extends JFrame {
         shell.setPage(serversPage, Shell.Target.SERVERS);
     }
 
+    private JComponent aboutPage;
+
+    /** «О лаунчере»: описание, политика конфиденциальности, разработчик и ссылки. */
+    void openAbout() {
+        skinEditorPage = null;
+        dropNews();
+        if (settingsPage != null) {
+            settingsPage.dispose();
+            settingsPage = null;
+        }
+        if (aboutPage == null) aboutPage = new AboutPage(this::openUrl, app.cfg);
+        shell.setPage(aboutPage, Shell.Target.ABOUT);
+    }
+
     /**
      * «Сборки» — интерфейс сборок (v3) страницей оболочки. Создаётся один раз и живёт до пересборки
      * окна: начатая установка модов и открытая вкладка не теряются при переходах по меню.
@@ -224,6 +247,7 @@ public class MainWindow extends JFrame {
             settingsPage.dispose();
             settingsPage = null;
         }
+        ru.cw.launcher.shell.ContentSource.translateToRussian = app.cfg.translateDescriptions && Lang.russian();
         if (buildsPage == null) {
             ru.cw.launcher.shell.ui.Kit.useLauncherTheme(SettingsKit.ACCENT, SettingsKit.ACTIVE_2,
                     SettingsKit.TEXT, SettingsKit.MUTED);

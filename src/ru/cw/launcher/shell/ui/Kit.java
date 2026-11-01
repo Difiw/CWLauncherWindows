@@ -230,6 +230,8 @@ public final class Kit {
         private List<String> items = List.of();
         private String selected = "";
         private final String icon;
+        /** Значок у каждого пункта (например логотип сайта); null — один общий значок. */
+        private java.util.function.Function<String, String> itemIcon;
         private boolean hover;
         private boolean open;
         private Consumer<String> onChange = v -> {
@@ -257,6 +259,15 @@ public final class Kit {
                     if (!open) popup();
                 }
             });
+        }
+
+        public void itemIcons(java.util.function.Function<String, String> f) {
+            itemIcon = f;
+            repaint();
+        }
+
+        private String iconFor(String value) {
+            return itemIcon != null ? itemIcon.apply(value) : icon;
         }
 
         public void onChange(Consumer<String> c) {
@@ -373,7 +384,12 @@ public final class Kit {
                     g.setFont(Dropdown.this.getFont());
                     g.setColor(TEXT);
                     FontMetrics fm = g.getFontMetrics();
-                    g.drawString(value, 14, (getHeight() - fm.getHeight()) / 2 + fm.getAscent());
+                    int tx = 14;
+                    if (itemIcon != null) {
+                        Icons.draw(g, iconFor(value), 12, (getHeight() - 20) / 2, 20, TEXT);
+                        tx = 42;
+                    }
+                    g.drawString(value, tx, (getHeight() - fm.getHeight()) / 2 + fm.getAscent());
                     if (sel) Icons.draw(g, "check", getWidth() - 30, 8, 18, ACCENT_HI);
                     g.dispose();
                 }
@@ -400,8 +416,9 @@ public final class Kit {
             g.setFont(getFont());
             FontMetrics fm = g.getFontMetrics();
             int x = 14;
-            if (icon != null) {
-                Icons.draw(g, icon, x, (h - 20) / 2, 20, TEXT);
+            String ic = iconFor(selected);
+            if (ic != null) {
+                Icons.draw(g, ic, x, (h - 20) / 2, 20, TEXT);
                 x += 30;
             }
             g.setColor(TEXT);

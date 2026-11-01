@@ -7,7 +7,13 @@ import ru.cw.launcher.util.Log;
 import ru.cw.launcher.util.Paths;
 import ru.cw.launcher.util.Utils;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -118,8 +124,184 @@ public final class ElyAuthManager {
         return "Ely.by отклонил вход";
     }
 
-    /** Пусто, если client id, redirect URI и адрес сервера CW заданы верно. */
+    // ------------------------------------------------------------------ прямой вход через браузер
+
+    public static final String TOKEN_URL = "https://account.ely.by/api/oauth2/v1/token";
+    public static final int DIRECT_PORT = 25963;
+    /** Этот адрес нужно указать как Redirect URI в приложении Ely.by. */
+    public static final String DIRECT_REDIRECT = "http://localhost:" + DIRECT_PORT + "/ely";
+    private static final String SECRET_KEY = "ely.app.secret";
+
+    /**
+     * Данные приложения Ely.by: Client ID из настроек (или ely-app.json рядом с лаунчером) и Client Secret
+     * из защищённого хранилища (или того же файла). null — приложение ещё не настроено.
+     */
+    public static String[] directCredentials(Settings cfg) {
+        String id = cfg == null || cfg.elyClientId == null ? "" : cfg.elyClientId.trim();
+        String secret = Secrets.get(SECRET_KEY);
+        if (secret == null) secret = "";
+        if (id.isEmpty() || secret.isBlank()) {
+            try {
+                java.nio.file.Path file = Paths.installRoot().resolve("ely-app.json");
+                if (java.nio.file.Files.isRegularFile(file)) {
+                    Map<String, Object> m = Json.parseObject(java.nio.file.Files.readString(file, StandardCharsets.UTF_8));
+                    if (id.isEmpty()) id = Json.str(m, "clientId", "").trim();
+                    if (secret.isBlank()) secret = Json.str(m, "clientSecret", "").trim();
+                }
+            } catch (IOException | RuntimeException e) {
+                Log.warn("Ely.by: ely-app.json не прочитан: " + Log.reason(e));
+            }
+        }
+        return id.isEmpty() || secret.isBlank() ? null : new String[]{id, secret.trim()};
+    }
+
+    /** Вход идёт напрямую, если есть данные приложения и не задан старый серверный обмен. */
+    public static boolean isDirect(Settings cfg) {
+        boolean backend = cfg != null && cfg.elyBackendUrl != null && !cfg.elyBackendUrl.isBlank();
+        return !backend && directCredentials(cfg) != null;
+    }
+
+    public static void saveDirectCredentials(Settings cfg, String clientId, String clientSecret) {
+        cfg.elyClientId = clientId == null ? "" : clientId.trim();
+        Secrets.put(SECRET_KEY, clientSecret == null ? "" : clientSecret.trim());
+    }
+
+    private static Result startDirect(Settings cfg, AccountManager accounts, Progress progress) {
+        String[] app = directCredentials(cfg);
+        synchronized (LOCK) {
+            if (waiting) return new Result(false, "", "", "Вход уже выполняется");
+            waiting = true;
+        }
+        try (ServerSocket server = new ServerSocket(DIRECT_PORT, 4, InetAddress.getLoopbackAddress())) {
+            String state = newState();
+            report(progress, Phase.OPENING, "Открываем Ely.by…");
+            if (!Utils.openUrl(authorizeUrl(app[0], DIRECT_REDIRECT, state))) return fail("Не удалось открыть браузер");
+            report(progress, Phase.AUTHORIZING, "Авторизация…");
+            Log.info("Ely.by: открыт сайт входа (прямой режим)");
+            Callback callback = waitLoopback(server, state);
+            Map<String, String> form = new LinkedHashMap<>();
+            form.put("grant_type", "authorization_code");
+            form.put("code", callback.code);
+            form.put("client_id", app[0]);
+            form.put("client_secret", app[1]);
+            form.put("redirect_uri", DIRECT_REDIRECT);
+            Tokens tokens = tokenRequest(form);
+            report(progress, Phase.PROFILE, "Получение профиля…");
+            Profile profile = accountInfo(tokens.access);
+            if (Utils.isBlank(profile.username)) return fail("У аккаунта нет профиля Minecraft");
+            Account account = accounts.addEly(profile.username, profile.username, profile.uuid);
+            store(account, tokens.access, tokens.refresh, tokens.expiresIn);
+            accounts.setActive(account.id);
+            report(progress, Phase.DONE, "Готово");
+            Log.info("Ely.by: вход выполнен как " + profile.username);
+            return new Result(true, profile.username, profile.uuid, null);
+        } catch (java.net.BindException e) {
+            return fail("Порт " + DIRECT_PORT + " занят другой программой. Закройте её и повторите вход.");
+        } catch (AuthException e) {
+            return fail(e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return fail("Вход прерван");
+        } catch (IOException e) {
+            return fail(networkMessage(e, true));
+        } finally {
+            clearPending();
+        }
+    }
+
+    /** Ждёт возврата браузера на локальный адрес. Принимает только запросы с этим state. */
+    private static Callback waitLoopback(ServerSocket server, String state)
+            throws IOException, InterruptedException, AuthException {
+        server.setSoTimeout(1500);
+        long end = System.currentTimeMillis() + LOGIN_WAIT_MS;
+        while (System.currentTimeMillis() < end) {
+            Socket socket;
+            try {
+                socket = server.accept();
+            } catch (SocketTimeoutException e) {
+                continue;
+            }
+            try (socket) {
+                socket.setSoTimeout(5000);
+                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                String request = in.readLine();
+                String header;
+                while ((header = in.readLine()) != null && !header.isEmpty()) {
+                    // заголовки не нужны
+                }
+                String target = request == null ? "" : request.split(" ", 3).length > 1 ? request.split(" ", 3)[1] : "";
+                if (!target.startsWith("/ely")) {
+                    reply(socket, 404, "Not found");
+                    continue;
+                }
+                int q = target.indexOf('?');
+                Map<String, String> query = parseQuery(q < 0 ? null : target.substring(q + 1));
+                if (!sameState(state, query.get("state"))) {
+                    reply(socket, 400, "Вход отклонён: ответ не совпал с этим запуском CWLauncher.");
+                    throw new AuthException("Вход отклонён: ответ Ely.by не совпал с этим запуском.", true);
+                }
+                String error = query.get("error");
+                if (error != null && !error.isBlank()) {
+                    reply(socket, 200, "Вход отменён. Можно закрыть эту вкладку.");
+                    throw new AuthException(explainOauthError(error, query.getOrDefault("error_message", "")), true);
+                }
+                String code = query.get("code");
+                if (Utils.isBlank(code)) {
+                    reply(socket, 400, "Ely.by не вернул код входа.");
+                    continue;
+                }
+                reply(socket, 200, "Вход выполнен. Можно закрыть эту вкладку и вернуться в CWLauncher.");
+                return new Callback(code, query.get("state"), null, null);
+            } catch (SocketTimeoutException ignored) {
+                // браузер открыл соединение и молчит: ждём следующее
+            }
+        }
+        throw new AuthException("Время входа истекло. Ely.by не вернул вас в лаунчер.", true);
+    }
+
+    private static void reply(Socket socket, int status, String text) throws IOException {
+        String body = "<!doctype html><html><head><meta charset=\"utf-8\"><title>CWLauncher</title></head>"
+                + "<body style=\"font-family:Segoe UI,Arial,sans-serif;background:#0d1621;color:#f1f5fa;"
+                + "display:flex;align-items:center;justify-content:center;height:100vh;margin:0\">"
+                + "<div style=\"text-align:center\"><h2>CWLauncher</h2><p>" + text + "</p></div></body></html>";
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        String head = "HTTP/1.1 " + status + (status == 200 ? " OK" : " Error") + "\r\nContent-Type: text/html; charset=utf-8\r\n"
+                + "Content-Length: " + bytes.length + "\r\nConnection: close\r\n\r\n";
+        socket.getOutputStream().write(head.getBytes(StandardCharsets.US_ASCII));
+        socket.getOutputStream().write(bytes);
+        socket.getOutputStream().flush();
+    }
+
+    /** Запрос к token endpoint Ely.by: обмен кода или обновление. Секрет в журнал не пишется. */
+    private static Tokens tokenRequest(Map<String, String> form) throws IOException, InterruptedException, AuthException {
+        StringBuilder body = new StringBuilder();
+        for (Map.Entry<String, String> e : form.entrySet()) {
+            if (body.length() > 0) body.append('&');
+            body.append(enc(e.getKey())).append('=').append(enc(e.getValue()));
+        }
+        HttpRequest req = HttpRequest.newBuilder(URI.create(TOKEN_URL))
+                .timeout(Duration.ofSeconds(25))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("Accept", "application/json")
+                .header("User-Agent", "CWLauncher/" + Log.VERSION)
+                .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
+                .build();
+        HttpResponse<String> resp = client().send(req, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() < 200 || resp.statusCode() >= 300) throw tokenFailure(resp.statusCode(), resp.body());
+        Tokens tokens = readTokens(resp.body());
+        if (tokens == null || Utils.isBlank(tokens.access)) {
+            throw new AuthException("Сессия входа истекла. Войдите снова через Ely.by", true);
+        }
+        return tokens;
+    }
+
+    /** Пусто, если вход настроен: прямой режим (Client ID и Secret) или старый серверный. */
     public static String configError(Settings cfg) {
+        if (isDirect(cfg)) return null;
+        return legacyConfigError(cfg);
+    }
+
+    private static String legacyConfigError(Settings cfg) {
         String id = cfg == null || cfg.elyClientId == null ? "" : cfg.elyClientId.trim();
         String redirect = cfg == null || cfg.elyRedirectUri == null ? "" : cfg.elyRedirectUri.trim();
         String backend = cfg == null || cfg.elyBackendUrl == null ? "" : cfg.elyBackendUrl.trim();
@@ -159,6 +341,7 @@ public final class ElyAuthManager {
     public static Result startLogin(Settings cfg, AccountManager accounts, Progress progress) {
         String problem = configError(cfg);
         if (problem != null) return new Result(false, "", "", problem);
+        if (isDirect(cfg)) return startDirect(cfg, accounts, progress);
         synchronized (LOCK) {
             if (waiting) return new Result(false, "", "", "Вход уже выполняется");
             waiting = true;
@@ -341,6 +524,16 @@ public final class ElyAuthManager {
     }
 
     private static Tokens refresh(Settings cfg, String refresh) throws IOException, InterruptedException, AuthException {
+        if (isDirect(cfg)) {
+            String[] app = directCredentials(cfg);
+            Map<String, String> form = new LinkedHashMap<>();
+            form.put("grant_type", "refresh_token");
+            form.put("refresh_token", refresh);
+            form.put("client_id", app[0]);
+            form.put("client_secret", app[1]);
+            form.put("scope", SCOPE);
+            return tokenRequest(form);
+        }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("refresh_token", refresh);
         HttpResponse<String> resp = post(base(cfg) + "/refresh", Json.writeCompact(body));

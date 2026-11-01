@@ -118,6 +118,8 @@ public final class SettingsWindow {
         private final LauncherApp app;
         private final Settings cfg;
         private GameOptions opts;
+        /** Версия, чей options.txt сейчас правится. Параметры игры у каждой версии свои. */
+        private final String targetVersion;
         private final Map<Section, List<Bind>> binds = new EnumMap<>(Section.class);
         private final Map<Section, List<OptBind>> optBinds = new EnumMap<>(Section.class);
         private final Map<Section, JComponent> pages = new EnumMap<>(Section.class);
@@ -138,10 +140,16 @@ public final class SettingsWindow {
                 14f, Font.PLAIN, SettingsKit.AMBER);
 
         Page(MainWindow mw, LauncherApp app, int section) {
+            this(mw, app, section, null);
+        }
+
+        /** target — версия Minecraft, для которой правятся параметры игры; null — выбранная в лаунчере. */
+        Page(MainWindow mw, LauncherApp app, int section, String target) {
             super(null);
             this.mw = mw;
             this.app = app;
             this.cfg = app.cfg;
+            this.targetVersion = target == null || target.isBlank() ? app.cfg.minecraftVersion : target;
             this.opts = GameOptions.load(optionsFile());
             setOpaque(false);
             setFocusable(true);
@@ -338,14 +346,14 @@ public final class SettingsWindow {
 
         private boolean gameRunning() {
             try {
-                return app.launch.aliveCount(cfg.minecraftVersion) > 0;
+                return app.launch.aliveCount(targetVersion) > 0;
             } catch (Exception e) {
                 return false;
             }
         }
 
-        private static Path optionsFile() {
-            return Paths.gameDir().resolve("options.txt");
+        private Path optionsFile() {
+            return Paths.versionHome(targetVersion).resolve("options.txt");
         }
 
         /** Подпись настроек, которые меняют вид всего окна: после них интерфейс строится заново. */
@@ -392,7 +400,7 @@ public final class SettingsWindow {
                                     + "Close the game and save the game settings again.");
                 } else {
                     try {
-                        if (!op.raw().containsKey("version") && "1.20.1".equals(cfg.minecraftVersion)) {
+                        if (!op.raw().containsKey("version") && "1.20.1".equals(targetVersion)) {
                             Map<String, String> ordered = new LinkedHashMap<>();
                             ordered.put("version", DATA_VERSION_1_20_1);
                             ordered.putAll(op.raw());
@@ -586,7 +594,11 @@ public final class SettingsWindow {
                     Tr.t("Основные параметры лаунчера", "Basic launcher options"))
                     .add(SettingsKit.labeled(Tr.t("Язык интерфейса и игры", "Interface and game language"), language))
                     .add(SettingsKit.labeled(Tr.t("Действие при запуске игры", "When the game starts"), launch))
-                    .add(SettingsKit.labeled(Tr.t("Проверка обновлений лаунчера", "Check for launcher updates"), every));
+                    .add(SettingsKit.labeled(Tr.t("Проверка обновлений лаунчера", "Check for launcher updates"), every))
+                    .add(SettingsKit.row(Glyph.GLOBE, Tr.t("Переводить описания на русский", "Translate descriptions to Russian"),
+                            Tr.t("Описания модов и карт на английском переводятся онлайн-переводчиком. Тексты отправляются во внешнюю службу.",
+                                    "English mod and map descriptions are translated by an online translator. The texts are sent to an external service."),
+                            toggle(s, c -> c.translateDescriptions, (c, v) -> c.translateDescriptions = v)));
 
             int capGb = Math.max(2, SettingsManager.maxGameRamMb() / 1024);
             int minGb = capGb >= 4 ? 2 : 1;
@@ -837,7 +849,38 @@ public final class SettingsWindow {
                             optToggle(s, "chatLinks", true)))
                     .add(SettingsKit.slider(Tr.t("Размер чата", "Chat scale"), chatScale, v -> v + "%"))
                     .add(SettingsKit.slider(Tr.t("Непрозрачность текста", "Text opacity"), chatOpacity, v -> v + "%"));
-            return scrollPage(file, graphics, view, sound, chat);
+            return scrollPage(versionCard(), file, graphics, view, sound, chat);
+        }
+
+        /**
+         * Для какой версии игры эти настройки. У каждой установленной версии свой options.txt:
+         * в одной стоят моды и свои параметры, в другой — чистый ванильный клиент.
+         */
+        private Card versionCard() {
+            List<String> ids = new ArrayList<>(Paths.localGameIds());
+            if (!ids.contains(cfg.minecraftVersion)) ids.add(0, cfg.minecraftVersion);
+            if (!ids.contains(targetVersion)) ids.add(targetVersion);
+            ids.sort((a, b) -> Utils.compareVersions(b, a));
+            String[] labels = new String[ids.size()];
+            for (int i = 0; i < labels.length; i++) {
+                String id = ids.get(i);
+                labels[i] = "Minecraft " + id + (id.equals(cfg.minecraftVersion) ? Tr.t("  ·  выбрана в лаунчере", "  ·  selected in the launcher") : "");
+            }
+            Dropdown d = new Dropdown(labels, Math.max(0, ids.indexOf(targetVersion)));
+            d.onChange(() -> {
+                String pick = ids.get(d.getSelectedIndex());
+                if (pick.equals(targetVersion)) return;
+                if (bSave.isEnabled()) {
+                    d.setSelectedIndex(Math.max(0, ids.indexOf(targetVersion)));
+                    Dialogs.toast(mw, Tr.t("Сначала сохраните или сбросьте изменения", "Save or reset your changes first"), SettingsKit.AMBER);
+                    return;
+                }
+                mw.reopenSettings(current.ordinal(), pick);
+            });
+            return new Card(Glyph.LAYERS, Tr.t("Настройки для версии", "Settings for version"),
+                    Tr.t("У каждой версии Minecraft свои параметры. Выберите, какую настраиваете.",
+                            "Every Minecraft version keeps its own options. Pick the one you are setting up.")).wide()
+                    .add(SettingsKit.labeled(Tr.t("Версия игры", "Game version"), d));
         }
 
         private Card optionsCard() {
@@ -858,14 +901,14 @@ public final class SettingsWindow {
             refresh.run();
             deps.add(refresh);
             Button open = new Button(Tr.t("Папка игры", "Game folder"), Glyph.FOLDER, Kind.GHOST);
-            open.addActionListener(e -> mw.openFolder(Paths.gameDir()));
+            open.addActionListener(e -> mw.openFolder(Paths.versionHome(targetVersion)));
             JPanel line = new JPanel(new BorderLayout(s(12), 0));
             line.setOpaque(false);
             line.add(st, BorderLayout.CENTER);
             line.add(open, BorderLayout.EAST);
             return new Card(Glyph.FILE, Tr.t("Настройки Minecraft", "Minecraft settings"),
                     Tr.t("Те же параметры, что в меню игры. Minecraft ", "Same options as the in-game menu. Minecraft ")
-                            + cfg.minecraftVersion).wide().add(SettingsKit.fullWidth(line));
+                            + targetVersion).wide().add(SettingsKit.fullWidth(line));
         }
 
         // ------------------------------------------------------------------ Управление
@@ -891,7 +934,7 @@ public final class SettingsWindow {
                     .add(SettingsKit.labeled(Tr.t("Бег", "Sprint"), optDrop(s, "toggleSprint", mode, new String[]{"false", "true"}, 0, false)))
                     .add(SettingsKit.row(null, Tr.t("Автопрыжок", "Auto-jump"),
                             Tr.t("Сам запрыгивает на блоки", "Jumps onto blocks by itself"), optToggle(s, "autoJump", false)));
-            return scrollPage(mouse, move, keysCard(s));
+            return scrollPage(versionCard(), mouse, move, keysCard(s));
         }
 
         private Card keysCard(Section s) {
@@ -1452,6 +1495,11 @@ public final class SettingsWindow {
                     && p.toAbsolutePath().normalize().startsWith(Paths.backgroundDir().toAbsolutePath().normalize());
         }
 
+        /** Встроенный фон подписан «Основная», а не именем файла main.png. */
+        static String displayName(Path p) {
+            return isDefault(p) ? Tr.t("Основная", "Default") : p.getFileName().toString();
+        }
+
         private static String currentBackground(Settings c) {
             return c.useCustomBackground && c.backgroundPath != null ? c.backgroundPath : "";
         }
@@ -1497,7 +1545,7 @@ public final class SettingsWindow {
                 this.file = file;
                 setPreferredSize(new Dimension(s(200), s(116)));
                 setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-                setToolTipText(file.getFileName().toString());
+                setToolTipText(displayName(file));
                 addMouseListener(new MouseAdapter() {
                     @Override
                     public void mouseEntered(MouseEvent e) {
@@ -1564,7 +1612,7 @@ public final class SettingsWindow {
                 g2.setFont(SettingsKit.font(Font.PLAIN, 13f));
                 g2.setColor(Color.WHITE);
                 FontMetrics fm = g2.getFontMetrics();
-                g2.drawString(SettingsKit.ellipsize(file.getFileName().toString(), fm, w - s(40)), s(10), h - s(10));
+                g2.drawString(SettingsKit.ellipsize(displayName(file), fm, w - s(40)), s(10), h - s(10));
                 g2.setStroke(new BasicStroke(selected ? s(3) : 1f));
                 g2.setColor(selected ? SettingsKit.ACCENT : hover ? SettingsKit.FIELD_HOVER : SettingsKit.CARD_LINE);
                 g2.draw(new RoundRectangle2D.Float(1, 1, w - 3, h - 3, r, r));

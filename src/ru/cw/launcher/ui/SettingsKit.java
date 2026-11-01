@@ -311,7 +311,7 @@ public final class SettingsKit {
         HOME, NEWS, SERVERS, USER, GEAR, GAMEPAD, PUZZLE, MONITOR, SLIDERS, KEYBOARD, GLOBE, CHIP, JAVA,
         BARS, FULLSCREEN, SAVE, RESET, FOLDER, BRUSH, SOUND, MOUSE, EYE, ROCKET, NET, TRASH, FILE, BUG,
         CHEVRON, CLOSE, MIN, MAX, CHECK, IMAGE, SHIELD, CLOCK, BELL, CHAT, PLUS, ARCHIVE, LAYERS, PLAY, COPY, EXIT, RIGHT, LINK, LEFT, SEARCH, CUBE,
-        CALENDAR, WINDOW, SESSION
+        CALENDAR, WINDOW, SESSION, INFO
     }
 
     /** Векторная иконка в квадрате 24×24, растянутом до size. */
@@ -706,6 +706,11 @@ public final class SettingsKit {
                 g.draw(new Polygon(new int[]{12, 20, 12, 4}, new int[]{3, 7, 11, 7}, 4));
                 g.drawPolyline(new int[]{4, 4, 12, 20, 20}, new int[]{7, 16, 21, 16, 7}, 5);
                 g.drawLine(12, 11, 12, 21);
+            }
+            case INFO -> {
+                g.draw(new Ellipse2D.Float(2.5f, 2.5f, 19, 19));
+                g.drawLine(12, 11, 12, 17);
+                g.fill(new Ellipse2D.Float(10.8f, 6.3f, 2.4f, 2.4f));
             }
             case LINK -> {
                 g.draw(new Ellipse2D.Float(2.5f, 2.5f, 19, 19));
@@ -1583,7 +1588,7 @@ public final class SettingsKit {
     // ------------------------------------------------------------------ навигация
 
     /** Пункт меню: иконка и текст, активный подсвечен синим. */
-    public static final class NavItem extends JButton {
+    public static class NavItem extends JButton {
         private final Glyph glyph;
         private boolean active;
         private boolean hover;
@@ -1622,6 +1627,18 @@ public final class SettingsKit {
 
         public boolean isActive() {
             return active;
+        }
+
+        protected boolean hovered() {
+            return hover;
+        }
+
+        protected Glyph glyph() {
+            return glyph;
+        }
+
+        protected float textSize() {
+            return textSize;
         }
 
         @Override

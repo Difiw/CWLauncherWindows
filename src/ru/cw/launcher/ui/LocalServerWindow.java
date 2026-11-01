@@ -369,19 +369,9 @@ public final class LocalServerWindow {
     }
 
     private static void chooseDirectory(Component parent, JTextField field) {
-        JFileChooser chooser = new JFileChooser();
-        try {
-            if (!field.getText().isBlank()) {
-                chooser.setCurrentDirectory(Path.of(field.getText()).toFile());
-            }
-        } catch (RuntimeException e) {
-            Log.warn("Не удалось использовать текущую папку в диалоге выбора: " + Log.reason(e));
-        }
-        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-        chooser.setDialogTitle("Папка локального сервера");
-        if (chooser.showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) {
-            field.setText(chooser.getSelectedFile().toPath().toAbsolutePath().normalize().toString());
-        }
+        // Обычный проводник Windows вместо Swing-окна.
+        Path chosen = ru.cw.launcher.util.FolderPicker.choose(parent, "Папка локального сервера", field.getText());
+        if (chosen != null) field.setText(chosen.toAbsolutePath().normalize().toString());
     }
 
     private static String addressHint() {

@@ -126,8 +126,12 @@ public class Settings {
     public int cornerRadius = 14;
     /** Непрозрачность карточек: 40–100. Меньше — сквозь них виден фон. */
     public int panelOpacity = 75;
-    /** Картинка фона под всем интерфейсом, а не только в баннере. */
+    /** Картинка фона под всем интерфейсом, а не только на главной. По умолчанию выключено: основной фон виден на главной. */
     public boolean shellBackground = false;
+    /** Переводить описания модов и карт с английского на русский через онлайн-переводчик. Выключено: тексты уходят во внешнюю службу. */
+    public boolean translateDescriptions = false;
+    /** Версия набора умолчаний интерфейса: старые конфиги один раз получают новые (основной фон сразу). */
+    public int uiRevision = 3;
     /** Окно лаунчера на весь экран. Отдельно от полноэкранного режима Minecraft. */
     public boolean launcherFullscreen = false;
     /** Затемнение левой части баннера главной под текстом, 0–100. */
@@ -261,6 +265,8 @@ public class Settings {
         tech.put("cornerRadius", cornerRadius);
         tech.put("panelOpacity", panelOpacity);
         tech.put("shellBackground", shellBackground);
+        tech.put("translateDescriptions", translateDescriptions);
+        tech.put("uiRevision", uiRevision);
         tech.put("launcherFullscreen", launcherFullscreen);
         tech.put("heroShade", heroShade);
         tech.put("skinReorderAnim", skinReorderAnim);
@@ -377,6 +383,8 @@ public class Settings {
             s.cornerRadius = (int) Json.num(tech, "cornerRadius", s.cornerRadius);
             s.panelOpacity = (int) Json.num(tech, "panelOpacity", s.panelOpacity);
             s.shellBackground = Json.bool(tech, "shellBackground", s.shellBackground);
+            s.translateDescriptions = Json.bool(tech, "translateDescriptions", s.translateDescriptions);
+            s.uiRevision = (int) Json.num(tech, "uiRevision", 0);
             s.launcherFullscreen = Json.bool(tech, "launcherFullscreen", s.launcherFullscreen);
             s.heroShade = (int) Json.num(tech, "heroShade", s.heroShade);
             s.skinReorderAnim = Json.bool(tech, "skinReorderAnim", s.skinReorderAnim);
@@ -432,6 +440,18 @@ public class Settings {
             default -> playTimeUnit = "sec";
         }
         if (legacyServer(serverIp)) serverIp = SERVER;
+        if (uiRevision < 3) {
+            // Один раз для конфигов старых версий: картинка только на главной, под остальным интерфейсом выключена.
+            uiRevision = 3;
+            shellBackground = false;
+            boolean gone = backgroundPath == null || backgroundPath.isBlank()
+                    || !java.nio.file.Files.isRegularFile(java.nio.file.Path.of(backgroundPath))
+                    || backgroundPath.toLowerCase(java.util.Locale.ROOT).endsWith("branch.png");
+            if (gone) {
+                useCustomBackground = false;
+                backgroundPath = "";
+            }
+        }
         if (elyClientId == null) elyClientId = "";
         else elyClientId = elyClientId.trim();
         if (elyRedirectUri == null) elyRedirectUri = "";

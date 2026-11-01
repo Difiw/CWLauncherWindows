@@ -1045,9 +1045,24 @@ public final class LauncherApp {
                 if (skinChanged || onStateChanged != null) {
                     if (onStateChanged != null) javax.swing.SwingUtilities.invokeLater(onStateChanged);
                 }
+                refreshElySkin(accounts.active(), false, null);
             } finally {
                 serverBusy.set(false);
             }
+        });
+    }
+
+    /**
+     * Скин Ely.by активного аккаунта: проверяется в фоне, пока кэш не устарел — без сети.
+     * После загрузки обновляются аватар в меню и открытая страница (done).
+     */
+    public void refreshElySkin(Account account, boolean force, Runnable done) {
+        if (!ru.cw.launcher.skin.ElySkin.applies(account)) return;
+        ru.cw.launcher.skin.ElySkin.request(account, force, () -> {
+            Account active = accounts.active();
+            if (active != null) ru.cw.launcher.skin.PlayerSkin.refresh(active);
+            if (done != null) done.run();
+            if (onStateChanged != null) onStateChanged.run();
         });
     }
 
@@ -1095,6 +1110,7 @@ public final class LauncherApp {
         cfg.activeAccountId = selected.id;
         SettingsManager.save();
         ru.cw.launcher.skin.PlayerSkin.refresh(selected);
+        refreshElySkin(selected, false, null);
     }
 
     public void saveSettings() {

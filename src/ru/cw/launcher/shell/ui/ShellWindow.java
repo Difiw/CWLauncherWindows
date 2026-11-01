@@ -66,9 +66,17 @@ public final class ShellWindow extends JPanel {
         this.content = content;
         this.embedded = embedded;
         ContentSource.keyOverride = prefs.curseKey;
+        BrowsePanel.keySaver = k -> {
+            prefs.curseKey = k;
+            try {
+                prefs.save();
+            } catch (IOException ignored) {
+                // ключ останется до закрытия лаунчера
+            }
+        };
         setBackground(Kit.BG);
         setOpaque(!embedded);
-        builds = new BuildsPage(store, () -> show("create"));
+        builds = new BuildsPage(store, () -> show("create"), () -> show("download"));
         if (embedded) {
             // Главная, аккаунты и настройки уже есть в лаунчере — здесь только сборки и каталог.
             add(tabs(), BorderLayout.NORTH);
@@ -144,10 +152,24 @@ public final class ShellWindow extends JPanel {
             }, content);
             body.add(p, "create");
         }
+        if ("download".equals(page)) {
+            for (Component c : body.getComponents()) if (c instanceof DownloadPackPage) body.remove(c);
+            body.add(new DownloadPackPage(content, new DownloadPackPage.Host() {
+                @Override
+                public void download(ContentSource.Item item, ContentSource.Provider provider) {
+                    downloadPack(item, provider);
+                }
+
+                @Override
+                public void back() {
+                    show("builds");
+                }
+            }), "download");
+        }
         if ("builds".equals(page)) builds.refresh();
         current = page;
         cards.show(body, page);
-        String highlight = "create".equals(page) ? "builds" : page;
+        String highlight = "create".equals(page) || "download".equals(page) ? "builds" : page;
         for (NavItem n : navItems) n.repaint();
         for (NavItem n : navItems) n.setActive(n.key.equals(highlight));
     }
@@ -156,12 +178,54 @@ public final class ShellWindow extends JPanel {
         return current;
     }
 
+    /** Куда класть файлы сборки: выбранная папка игры или папка сборки внутри лаунчера. */
+    private java.nio.file.Path gameDir(BuildSpec spec) {
+        return spec.gameDir == null || spec.gameDir.isBlank() ? store.dir(spec.id) : java.nio.file.Path.of(spec.gameDir);
+    }
+
+    /** Скачивает готовую сборку и показывает прогресс на её карточке. Результат — обычная сборка. */
+    private void downloadPack(ContentSource.Item item, ContentSource.Provider provider) {
+        if (!provider.installable()) {
+            ru.cw.launcher.util.Utils.openUrl(item.id());
+            return;
+        }
+        show("builds");
+        String pending = "pack:" + item.id();
+        builds.setStatus(pending, "Скачивание сборки «" + item.title() + "»…");
+        installer.submit(() -> {
+            String[] id = {pending};
+            try {
+                List<String> failed = ru.cw.launcher.shell.ModpackInstaller.install(store, provider, item,
+                        new ru.cw.launcher.shell.ModpackInstaller.Listener() {
+                            @Override
+                            public void created(BuildSpec spec) {
+                                builds.setStatus(pending, "");
+                                id[0] = spec.id;
+                                SwingUtilities.invokeLater(builds::refresh);
+                            }
+
+                            @Override
+                            public void progress(BuildSpec spec, String text) {
+                                builds.setStatus(spec.id, text);
+                            }
+                        });
+                builds.setStatus(id[0], failed.isEmpty() ? "" : "Не скачано файлов: " + failed.size() + " (" + failed.get(0) + ")");
+            } catch (ContentSource.MissingKey e) {
+                builds.setStatus(pending, "Для CurseForge нужен ключ API: добавьте его в каталоге модов.");
+            } catch (IOException e) {
+                builds.setStatus(pending, "Не удалось скачать сборку: " + e.getMessage());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+    }
+
     private void install(BuildSpec spec, List<ModInstaller.Queued> queue) {
         if (queue.isEmpty()) return;
         builds.setStatus(spec.id, "Установка: 0/" + queue.size());
         installer.submit(() -> {
             try {
-                List<String> failed = ModInstaller.install(spec, store.dir(spec.id), queue,
+                List<String> failed = ModInstaller.install(spec, gameDir(spec), queue,
                         (done, title) -> builds.setStatus(spec.id, "Установка: " + done + "/" + queue.size()
                                 + (title.isEmpty() ? "" : " — " + title)));
                 builds.setStatus(spec.id, failed.isEmpty() ? "" : "Не установлено: " + failed.size()
@@ -394,6 +458,14 @@ public final class ShellWindow extends JPanel {
         row.add(new Kit.Btn("Сохранить", true, "check", () -> {
             prefs.curseKey = key.getText().trim();
             ContentSource.keyOverride = prefs.curseKey;
+        BrowsePanel.keySaver = k -> {
+            prefs.curseKey = k;
+            try {
+                prefs.save();
+            } catch (IOException ignored) {
+                // ключ останется до закрытия лаунчера
+            }
+        };
             msg.setForeground(Kit.GREEN);
             msg.setText(saveOk());
         }));

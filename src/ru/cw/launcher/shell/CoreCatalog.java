@@ -31,7 +31,7 @@ public class CoreCatalog {
         List<String> hit = cache.get("mc");
         if (hit != null) return hit;
         try {
-            List<String> v = parseMinecraft(Http.get(MOJANG, "mc-manifest-v2").body());
+            List<String> v = parseMinecraft(fetch(MOJANG, "mc-manifest-v2"));
             if (!v.isEmpty()) return remember("mc", v);
         } catch (IOException | RuntimeException e) {
             // ниже вернём запасной список
@@ -48,21 +48,31 @@ public class CoreCatalog {
         if (hit != null) return hit;
         try {
             List<String> v = switch (loader) {
-                case "Fabric" -> parseLoaderMeta(Http.get("https://meta.fabricmc.net/v2/versions/loader/" + mc,
-                        "fabric-loaders-" + mc).body());
-                case "Quilt" -> parseLoaderMeta(Http.get("https://meta.quiltmc.org/v3/versions/loader/" + mc,
-                        "quilt-loaders-" + mc).body());
-                case "Forge" -> forMinecraft(parseMavenVersions(Http.get(FORGE_META, "forge-meta").body()), mc);
-                case "NeoForge" -> neoForMinecraft(parseMavenVersions(Http.get(NEO_META, "neoforge-meta").body()), mc);
+                case "Fabric" -> parseLoaderMeta(fetch("https://meta.fabricmc.net/v2/versions/loader/" + mc,
+                        "fabric-loaders-" + mc));
+                case "Quilt" -> parseLoaderMeta(fetch("https://meta.quiltmc.org/v3/versions/loader/" + mc,
+                        "quilt-loaders-" + mc));
+                case "Forge" -> forMinecraft(parseMavenVersions(fetch(FORGE_META, "forge-meta")), mc);
+                case "NeoForge" -> neoForMinecraft(parseMavenVersions(fetch(NEO_META, "neoforge-meta")), mc);
                 default -> staticVersions(loader, mc);
             };
             return remember(key, v);
         } catch (IOException | RuntimeException e) {
-            return List.of();
+            // null — сеть не ответила; пустой список — ядра для этой версии действительно нет.
+            return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return List.of();
+            return null;
         }
+    }
+
+    /**
+     * Короткий запрос с дисковым кэшем: 12 секунд и две попытки, без сети — прошлый ответ.
+     * Общие сетевые настройки лаунчера (до шести попыток по 30 секунд) здесь слишком долгие:
+     * список версий «грузился» минутами.
+     */
+    private static String fetch(String url, String cacheKey) throws IOException, InterruptedException {
+        return Http.get(url, cacheKey, 12, 2).body();
     }
 
     private List<String> remember(String key, List<String> v) {
