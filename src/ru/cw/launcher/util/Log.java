@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
  */
 public final class Log {
 
-    public static final String VERSION = "3.6.7";
+    public static final String VERSION = "4.3.8";
 
     public enum Level {
         DEBUG, INFO, WARN, ERROR

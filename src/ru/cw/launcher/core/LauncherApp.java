@@ -89,6 +89,7 @@ public final class LauncherApp {
         }
         bindPaths();
         PlayTime.watch(launch::runningPids);
+        ActivityStats.watch(launch::runningPids, () -> cfg.commonWorld);
         background.reload(cfg);
         syncProfileToSettings();
         if ("1.20.1".equals(cfg.minecraftVersion)) {
@@ -102,7 +103,7 @@ public final class LauncherApp {
         }
         Paths.ensureDirs();
         localServers = new LocalServerManager(java);
-        localServers.resume();
+        applyServerSettings(true);
     }
 
     /** Пути игры всегда смотрят на выбранную версию и её папку. */
@@ -1222,8 +1223,22 @@ public final class LauncherApp {
         };
     }
 
+    /**
+     * Настройки серверов из раздела «Серверы». atStart — при запуске лаунчера: поднять серверы
+     * с включённым у них автозапуском (по умолчанию он выключен).
+     */
+    public void applyServerSettings(boolean atStart) {
+        if (atStart) localServers.resume();
+        localServers.setAutoRestart(cfg.serversAutoRestart);
+        localServers.configureBackups(cfg.serversBackupMinutes, cfg.serversBackupKeep);
+    }
+
     public void shutdown() {
         PlayTime.end();
+        if (!cfg.serversKeepAlive) {
+            Log.info("Закрытие лаунчера: локальные серверы останавливаются");
+            localServers.stopAllNow();
+        }
         io.shutdownNow();
         SettingsManager.save();
         Log.flushNow();

@@ -5,13 +5,11 @@ package ru.cw.launcher.ui;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.Area;
-import java.awt.geom.GeneralPath;
 import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
 
 /**
- * Кнопка фирменной формы: прямоугольник со срезанными верхним левым и нижним правым
- * углами, синей подсвеченной границей и мягким свечением.
+ * Единая кнопка современной beta-темы.
  * Реализует hover / pressed / disabled состояния и плавную анимацию яркости.
  */
 public class CutButton extends JButton {
@@ -108,24 +106,24 @@ public class CutButton extends JButton {
             return new Color(22, 27, 34, 200);
         }
         return switch (accent) {
-            case PRIMARY -> blend(new Color(0x1c3557), new Color(0x2b62a8), anim);
+            case PRIMARY -> blend(new Color(0x168CC2), new Color(0x24A9E2), anim * .65f);
             case SUCCESS -> blend(new Color(0x174423), new Color(0x226b36), anim);
             case WARNING -> blend(new Color(0x4a3a12), new Color(0x7a5c17), anim);
             case DANGER -> blend(new Color(0x4d1d1d), new Color(0x7d2b2b), anim);
-            case GHOST -> blend(new Color(0x163056), new Color(0x2458A0), anim);
-            default -> blend(new Color(0x1A3F73), new Color(0x2F6FE0), anim);
+            case GHOST -> blend(new Color(12, 20, 34, 220), new Color(22, 37, 56, 230), anim);
+            default -> blend(new Color(20, 31, 48, 235), new Color(30, 48, 70, 240), anim);
         };
     }
 
     private Color lineColor() {
         if (!isEnabled()) return Theme.DISABLED;
         return switch (accent) {
-            case PRIMARY -> new Color(0x58a6ff);
+            case PRIMARY -> Theme.INFO;
             case SUCCESS -> Theme.GREEN;
             case WARNING -> Theme.AMBER;
             case DANGER -> Theme.RED;
-            case GHOST -> new Color(0x4C8DFF);
-            default -> new Color(0x4C8DFF);
+            case GHOST -> Theme.LINE;
+            default -> Theme.LINE;
         };
     }
 
@@ -146,18 +144,10 @@ public class CutButton extends JButton {
                 (int) (a.getAlpha() + (b.getAlpha() - a.getAlpha()) * t));
     }
 
-    /** Форма кнопки со срезанными углами TL/BR. */
+    /** Спокойная скруглённая форма без экспериментальных срезов. */
     public Shape shape(int w, int h) {
-        int c = Math.max(4, (int) (cut * scale));
-        GeneralPath p = new GeneralPath();
-        p.moveTo(c, 0);
-        p.lineTo(w, 0);
-        p.lineTo(w, h - c);
-        p.lineTo(w - c, h);
-        p.lineTo(0, h);
-        p.lineTo(0, c);
-        p.closePath();
-        return p;
+        int radius = Math.max(12, Math.min(18, h / 2));
+        return new RoundRectangle2D.Float(.5f, .5f, Math.max(1, w - 1), Math.max(1, h - 1), radius, radius);
     }
 
     @Override
@@ -175,16 +165,7 @@ public class CutButton extends JButton {
         }
         Shape s = shape(w - 1, h - 1);
 
-        if (glow && isEnabled() && accent != Accent.GHOST) {
-            float strength = 0.35f + 0.65f * anim;
-            Color line = lineColor();
-            for (int i = 4; i >= 1; i--) {
-                g2.setColor(new Color(line.getRed(), line.getGreen(), line.getBlue(),
-                        (int) (16 * strength / i)));
-                g2.setStroke(new BasicStroke(i * 2.2f));
-                g2.draw(s);
-            }
-        }
+        // Свечение удалено: оно давало грязный белый ореол в тёмной теме Windows.
         g2.setColor(baseFill());
         g2.fill(s);
         Motion.sweep(g2, s, anim);

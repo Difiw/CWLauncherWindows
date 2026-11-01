@@ -1,16 +1,20 @@
 package ru.cw.launcher.ui;
 
+import ru.cw.launcher.ui.SettingsKit.Button;
+import ru.cw.launcher.ui.SettingsKit.Glyph;
+import ru.cw.launcher.ui.SettingsKit.Kind;
 import ru.cw.launcher.util.Log;
 import ru.cw.launcher.util.Utils;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.geom.RoundRectangle2D;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Понятные сообщения об ошибках (раздел 26 ТЗ): текст + [Повторить] [Тех. Поддержка] [Закрыть],
- * подробности — отдельно и в лог. Плюс всплывающие уведомления без дублей.
+ * Сообщения лаунчера в новом стиле: тёмная скруглённая карточка поверх окна,
+ * ошибки с кнопками «Повторить», «Поддержка», «Подробности», уведомления внутри окна.
  */
 public final class Dialogs {
 
@@ -24,116 +28,70 @@ public final class Dialogs {
     /** Ошибка с повтором. Возвращает true, если пользователь нажал «Повторить». */
     public static boolean error(Component parent, String message, String details, Runnable retry) {
         Log.error(message + (details == null ? "" : " | " + details.replaceAll("\\s+", " ")));
-        JDialog d = new JDialog(SwingUtilities.getWindowAncestor(parent), "CWLauncher",
-                Dialog.ModalityType.APPLICATION_MODAL);
-        d.setUndecorated(true);
-        JPanel body = new JPanel(new BorderLayout(0, 14));
-        body.setBackground(Theme.PANEL);
-        body.setBorder(BorderFactory.createCompoundBorder(
-                new CutBorder(Theme.INFO, 10), BorderFactory.createEmptyBorder(18, 20, 16, 20)));
-        JLabel icon = new JLabel("!");
-        icon.setPreferredSize(new Dimension(28, 28));
-        icon.setForeground(Theme.AMBER);
-        icon.setFont(Theme.H2);
-        JLabel text = new JLabel("<html><div style='width:360px'>" + esc(message)
-                + "</div></html>");
-        text.setForeground(Theme.TEXT);
-        text.setFont(Theme.BODY);
-        JPanel top = new JPanel(new BorderLayout(12, 0));
-        top.setOpaque(false);
-        top.add(icon, BorderLayout.WEST);
-        top.add(text, BorderLayout.CENTER);
-        body.add(top, BorderLayout.NORTH);
-
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        buttons.setOpaque(false);
-        final boolean[] retryFlag = {false};
-        CutButton again = new CutButton(retry == null ? "Повторить" : "Повторить", CutButton.Accent.PRIMARY);
-        again.setEnabled(retry != null);
-        CutButton support = new CutButton("Тех. Поддержка", CutButton.Accent.NEUTRAL);
-        CutButton close = new CutButton("Закрыть", CutButton.Accent.GHOST);
-        again.addActionListener(e -> {
-            retryFlag[0] = true;
-            d.dispose();
-        });
-        support.addActionListener(e -> {
-            supportOpener.run();
-        });
-        close.addActionListener(e -> d.dispose());
-        buttons.add(again);
-        buttons.add(support);
+        final boolean[] again = {false};
+        Sheet sheet = new Sheet(parent, Glyph.SHIELD, SettingsKit.AMBER,
+                Tr.t("Что-то пошло не так", "Something went wrong"), message);
+        if (retry != null) sheet.button(Tr.t("Повторить", "Retry"), Glyph.RESET, Kind.PRIMARY, () -> again[0] = true, true);
+        sheet.button(Tr.t("Поддержка", "Support"), Glyph.CHAT, Kind.GHOST, supportOpener, false);
         if (details != null && !details.isBlank()) {
-            CutButton more = new CutButton("Подробности", CutButton.Accent.GHOST);
-            final String det = details;
-            more.addActionListener(e -> showDetails(parent, det));
-            buttons.add(more);
+            sheet.button(Tr.t("Подробности", "Details"), Glyph.FILE, Kind.GHOST, () -> showDetails(parent, details), false);
         }
-        buttons.add(close);
-        body.add(buttons, BorderLayout.SOUTH);
-
-        d.setContentPane(body);
-        WindowBackground.dim(d);
-        d.pack();
-        center(d, parent);
-        Motion.present(d);
-        if (retryFlag[0] && retry != null) retry.run();
-        return retryFlag[0];
+        sheet.button(Tr.t("Закрыть", "Close"), null, Kind.GHOST, null, true);
+        sheet.open();
+        if (again[0]) retry.run();
+        return again[0];
     }
 
     private static void showDetails(Component parent, String details) {
-        JDialog d = new JDialog(SwingUtilities.getWindowAncestor(parent), "Подробности",
-                Dialog.ModalityType.APPLICATION_MODAL);
-        JTextArea ta = new JTextArea(details, 18, 70);
+        JTextArea ta = new JTextArea(details, 16, 64);
         ta.setEditable(false);
         ta.setFont(Theme.MONO);
-        ta.setBackground(Theme.FIELD);
-        ta.setForeground(Theme.TEXT);
-        ta.setCaretColor(Theme.TEXT);
-        JScrollPane detailsScroll = new JScrollPane(ta);
-        Theme.style(detailsScroll);
-        d.setContentPane(detailsScroll);
-        WindowBackground.dim(d);
-        d.setSize(760, 460);
-        d.setLocationRelativeTo(parent);
-        Motion.present(d);
+        ta.setBackground(SettingsKit.FIELD);
+        ta.setForeground(SettingsKit.TEXT);
+        ta.setCaretColor(SettingsKit.TEXT);
+        ta.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        JScrollPane scroll = new JScrollPane(ta);
+        scroll.setBorder(BorderFactory.createLineBorder(SettingsKit.FIELD_LINE));
+        scroll.getVerticalScrollBar().setUI(new SettingsKit.ScrollBarUI());
+        Sheet sheet = new Sheet(parent, Glyph.FILE, SettingsKit.ACCENT, Tr.t("Подробности", "Details"), null);
+        sheet.extra(scroll);
+        sheet.button(Tr.t("Скопировать", "Copy"), Glyph.ARCHIVE, Kind.GHOST, () -> Toolkit.getDefaultToolkit()
+                .getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(details), null), false);
+        sheet.button(Tr.t("Закрыть", "Close"), null, Kind.PRIMARY, null, true);
+        sheet.open();
     }
 
-    /** Informational message with an optional action button. */
+    /** Вопрос с двумя ответами. true — нажата первая кнопка. */
     public static boolean ask(Component parent, String message, String okText, String cancelText) {
-        JDialog d = new JDialog(SwingUtilities.getWindowAncestor(parent), "CWLauncher",
-                Dialog.ModalityType.APPLICATION_MODAL);
-        d.setUndecorated(true);
-        JPanel body = new JPanel(new BorderLayout(0, 16));
-        body.setBackground(Theme.PANEL);
-        body.setBorder(BorderFactory.createCompoundBorder(
-                new CutBorder(Theme.INFO, 10), BorderFactory.createEmptyBorder(20, 22, 18, 22)));
-        JLabel text = new JLabel("<html><div style='width:380px'>" + esc(message) + "</div></html>");
-        text.setForeground(Theme.TEXT);
-        text.setFont(Theme.BODY);
-        body.add(text, BorderLayout.NORTH);
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        buttons.setOpaque(false);
         final boolean[] res = {false};
-        CutButton ok = new CutButton(okText, CutButton.Accent.PRIMARY);
-        CutButton no = new CutButton(cancelText, CutButton.Accent.GHOST);
-        ok.addActionListener(e -> {
-            res[0] = true;
-            d.dispose();
+        Sheet sheet = new Sheet(parent, Glyph.BELL, SettingsKit.ACCENT, null, message);
+        sheet.button(okText, null, Kind.PRIMARY, () -> res[0] = true, true);
+        sheet.button(cancelText, null, Kind.GHOST, null, true);
+        sheet.open();
+        return res[0];
+    }
+
+    /** Ввод строки: ник, имя. null — пользователь отменил. */
+    public static String input(Component parent, String title, String hint, String initial, String okText) {
+        JTextField field = SettingsKit.field(initial == null ? "" : initial);
+        field.setPreferredSize(new Dimension(SettingsKit.s(400), SettingsKit.s(46)));
+        final String[] res = {null};
+        Sheet sheet = new Sheet(parent, Glyph.USER, SettingsKit.ACCENT, title, hint);
+        sheet.extra(field);
+        sheet.button(okText, Glyph.CHECK, Kind.PRIMARY, () -> res[0] = field.getText().trim(), true);
+        sheet.button(Tr.t("Отмена", "Cancel"), null, Kind.GHOST, null, true);
+        SwingUtilities.invokeLater(() -> {
+            field.requestFocusInWindow();
+            field.selectAll();
         });
-        no.addActionListener(e -> d.dispose());
-        buttons.add(ok);
-        buttons.add(no);
-        body.add(buttons, BorderLayout.SOUTH);
-        d.setContentPane(body);
-        WindowBackground.dim(d);
-        d.pack();
-        center(d, parent);
-        Motion.present(d);
+        sheet.open();
         return res[0];
     }
 
     public static void info(Component parent, String message) {
-        ask(parent, message, "Понятно", "Закрыть");
+        Sheet sheet = new Sheet(parent, Glyph.BELL, SettingsKit.ACCENT, null, message);
+        sheet.button(Tr.t("Понятно", "OK"), null, Kind.PRIMARY, null, true);
+        sheet.open();
     }
 
     /**
@@ -143,73 +101,56 @@ public final class Dialogs {
     public static java.nio.file.Path chooseInstallRoot(Component parent, String version) {
         java.nio.file.Path launcherDir = ru.cw.launcher.util.Paths.gamesRoot()
                 .resolve(ru.cw.launcher.util.Paths.sanitize(version));
-        JDialog d = new JDialog(SwingUtilities.getWindowAncestor(parent), "Куда скачать",
-                Dialog.ModalityType.APPLICATION_MODAL);
-        d.setUndecorated(true);
-        JPanel body = new JPanel(new BorderLayout(0, 16));
-        body.setOpaque(false);
-        body.setBorder(BorderFactory.createCompoundBorder(
-                new CutBorder(Theme.INFO, 10), BorderFactory.createEmptyBorder(20, 22, 18, 22)));
-        JLabel text = new JLabel("<html><div style='width:460px'>Куда скачать Minecraft " + esc(version)
-                + "?<br>В папку лаунчера в Program Files писать нельзя."
-                + "<br>Обычное место: " + esc(launcherDir.toString())
-                + "<br>У каждой версии свои моды, миры, звуки и языки.</div></html>");
-        text.setForeground(Theme.TEXT);
-        text.setFont(Theme.BODY);
-        body.add(text, BorderLayout.NORTH);
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        buttons.setOpaque(false);
         final java.nio.file.Path[] chosen = {null};
         final boolean[] pickOwn = {false};
-        CutButton here = new CutButton("В папку CWLauncher", CutButton.Accent.PRIMARY, false);
-        CutButton custom = new CutButton("Своя папка", CutButton.Accent.NEUTRAL, false);
-        CutButton cancel = new CutButton("Отмена", CutButton.Accent.GHOST, false);
-        here.addActionListener(e -> {
-            chosen[0] = launcherDir;
-            d.dispose();
-        });
-        custom.addActionListener(e -> {
-            pickOwn[0] = true;
-            d.setVisible(false);
-        });
-        cancel.addActionListener(e -> d.dispose());
-        buttons.add(here);
-        buttons.add(custom);
-        buttons.add(cancel);
-        body.add(buttons, BorderLayout.SOUTH);
-        d.setContentPane(body);
-        WindowBackground.dim(d);
-        d.pack();
-        center(d, parent);
-        Motion.present(d);
-        if (pickOwn[0]) {
-            d.dispose();
-            return Utils.chooseDirectory(parent, "Выберите папку");
-        }
+        Sheet sheet = new Sheet(parent, Glyph.FOLDER, SettingsKit.ACCENT,
+                Tr.t("Куда скачать Minecraft " + version + "?", "Where to install Minecraft " + version + "?"),
+                Tr.t("Обычное место: " + launcherDir + "\nУ каждой версии свои моды, миры, звуки и языки.",
+                        "Default location: " + launcherDir + "\nEach version keeps its own mods, worlds and languages."));
+        sheet.button(Tr.t("В папку CWLauncher", "CWLauncher folder"), Glyph.CHECK, Kind.PRIMARY, () -> chosen[0] = launcherDir, true);
+        sheet.button(Tr.t("Своя папка", "Choose folder"), Glyph.FOLDER, Kind.GHOST, () -> pickOwn[0] = true, true);
+        sheet.button(Tr.t("Отмена", "Cancel"), null, Kind.GHOST, null, true);
+        sheet.open();
+        if (pickOwn[0]) return Utils.chooseDirectory(parent, Tr.t("Выберите папку", "Choose a folder"));
         return chosen[0];
     }
 
-    /** Уведомление-тост: недолгое сообщение в углу окна. Не повторяет одно и то же подряд. */
+    /** Уведомление внизу справа внутри окна. Не повторяет одно и то же, пока оно видно. */
     public static boolean toast(Component anchor, String message, Color accent) {
         if (shownToasts.contains(message)) return false;
+        Window w = anchor instanceof Window win ? win : SwingUtilities.getWindowAncestor(anchor);
+        if (w == null || !w.isShowing()) return false;
         shownToasts.add(message);
         if (shownToasts.size() > 40) shownToasts.remove(0);
-        Window w = anchor instanceof Window win ? win : SwingUtilities.getWindowAncestor(anchor);
-        if (w == null) return false;
         JWindow tw = new JWindow(w);
-        JLabel label = new JLabel("<html><div style='width:320px'>" + esc(message) + "</div></html>");
-        label.setForeground(Theme.TEXT);
-        label.setFont(Theme.BODY);
-        label.setBorder(BorderFactory.createCompoundBorder(
-                new CutBorder(accent, 8), BorderFactory.createEmptyBorder(12, 16, 12, 16)));
-        label.setBackground(Theme.PANEL);
-        label.setOpaque(true);
-        tw.setContentPane(label);
+        tw.setBackground(new Color(0, 0, 0, 0));
+        int r = SettingsKit.radius() + SettingsKit.s(2);
+        JPanel body = new JPanel(new BorderLayout(SettingsKit.s(12), 0)) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                SettingsKit.smooth(g2);
+                g2.setColor(new Color(0x142131));
+                g2.fill(new RoundRectangle2D.Float(0, 0, getWidth() - 1, getHeight() - 1, r, r));
+                g2.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 150));
+                g2.draw(new RoundRectangle2D.Float(0.5f, 0.5f, getWidth() - 2, getHeight() - 2, r, r));
+                g2.dispose();
+            }
+        };
+        body.setOpaque(false);
+        body.setBorder(BorderFactory.createEmptyBorder(SettingsKit.s(14), SettingsKit.s(18), SettingsKit.s(14), SettingsKit.s(22)));
+        body.add(new JLabel(SettingsKit.icon(Glyph.CHECK, SettingsKit.s(20), accent)), BorderLayout.WEST);
+        JLabel label = new JLabel("<html><div style='width:" + SettingsKit.s(260) + "px'>" + esc(message) + "</div></html>");
+        label.setForeground(SettingsKit.TEXT);
+        label.setFont(SettingsKit.font(Font.PLAIN, 15f));
+        body.add(label, BorderLayout.CENTER);
+        tw.setContentPane(body);
         tw.pack();
-        Point p = anchor.getLocationOnScreen();
-        tw.setLocation(p.x + anchor.getWidth() - tw.getWidth() - 18, p.y + 64);
+        Point p = w.getLocationOnScreen();
+        tw.setLocation(p.x + w.getWidth() - tw.getWidth() - SettingsKit.s(28),
+                p.y + w.getHeight() - tw.getHeight() - SettingsKit.s(100));
         Motion.present(tw);
-        Timer t = new Timer(6000, e -> {
+        Timer t = new Timer(4000, e -> {
             tw.dispose();
             shownToasts.remove(message);
         });
@@ -222,23 +163,103 @@ public final class Dialogs {
         shownToasts.clear();
     }
 
-    private static void center(JDialog d, Component parent) {
-        Window w = SwingUtilities.getWindowAncestor(parent);
-        if (w == null) {
-            d.setLocationRelativeTo(null);
-            return;
-        }
-        int x = w.getX() + (w.getWidth() - d.getWidth()) / 2;
-        int y = w.getY() + (w.getHeight() - d.getHeight()) / 2;
-        d.setLocation(Math.max(0, x), Math.max(0, y));
-    }
-
     private static String esc(String s) {
         return s == null ? "" : s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                 .replace("\n", "<br>");
     }
 
-    /** Рамка со срезанными верхним-левым и нижним-правым углами (как у кнопок). */
+    /** Модальная карточка поверх окна: иконка, заголовок, текст и кнопки справа внизу. */
+    private static final class Sheet {
+        private final JDialog d;
+        private final JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, SettingsKit.s(10), 0));
+        private final JPanel center = new JPanel(new BorderLayout(0, SettingsKit.s(12)));
+        private final Component parent;
+        private Button first;
+
+        Sheet(Component parent, Glyph glyph, Color tone, String title, String message) {
+            this.parent = parent;
+            Window owner = parent instanceof Window w ? w : parent == null ? null : SwingUtilities.getWindowAncestor(parent);
+            d = new JDialog(owner, "CWLauncher", Dialog.ModalityType.APPLICATION_MODAL);
+            d.setUndecorated(true);
+            d.setBackground(new Color(0, 0, 0, 0));
+            int r = SettingsKit.radius() + SettingsKit.s(4);
+            JPanel body = new JPanel(new BorderLayout(SettingsKit.s(18), SettingsKit.s(20))) {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    SettingsKit.smooth(g2);
+                    g2.setColor(new Color(0x111B27));
+                    g2.fill(new RoundRectangle2D.Float(0, 0, getWidth() - 1, getHeight() - 1, r, r));
+                    g2.setColor(SettingsKit.FIELD_LINE);
+                    g2.draw(new RoundRectangle2D.Float(0.5f, 0.5f, getWidth() - 2, getHeight() - 2, r, r));
+                    g2.dispose();
+                }
+            };
+            body.setOpaque(false);
+            int p = SettingsKit.s(26);
+            body.setBorder(BorderFactory.createEmptyBorder(p, p, SettingsKit.s(22), p));
+            JLabel ic = new JLabel(SettingsKit.icon(glyph, SettingsKit.s(34), tone));
+            ic.setVerticalAlignment(SwingConstants.TOP);
+            body.add(ic, BorderLayout.WEST);
+            center.setOpaque(false);
+            JPanel texts = new JPanel();
+            texts.setOpaque(false);
+            texts.setLayout(new BoxLayout(texts, BoxLayout.Y_AXIS));
+            if (title != null) {
+                texts.add(SettingsKit.label(title, 19f, Font.BOLD, SettingsKit.TEXT));
+                texts.add(Box.createVerticalStrut(SettingsKit.s(8)));
+            }
+            if (message != null) {
+                JLabel m = new JLabel("<html><div style='width:" + SettingsKit.s(400) + "px'>" + esc(message) + "</div></html>");
+                m.setFont(SettingsKit.font(Font.PLAIN, 16f));
+                m.setForeground(title == null ? SettingsKit.TEXT : new Color(0xC3CEDA));
+                texts.add(m);
+            }
+            center.add(texts, BorderLayout.NORTH);
+            body.add(center, BorderLayout.CENTER);
+            buttons.setOpaque(false);
+            body.add(buttons, BorderLayout.SOUTH);
+            d.setContentPane(body);
+            d.getRootPane().registerKeyboardAction(e -> d.dispose(),
+                    KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
+        }
+
+        void extra(JComponent c) {
+            center.add(c, BorderLayout.CENTER);
+        }
+
+        void button(String text, Glyph glyph, Kind kind, Runnable action, boolean closes) {
+            Button b = new Button(text, glyph, kind);
+            b.setFont(SettingsKit.font(Font.BOLD, 15f));
+            FontMetrics fm = b.getFontMetrics(b.getFont());
+            int w = fm.stringWidth(text) + SettingsKit.s(glyph == null ? 48 : 78);
+            Dimension size = new Dimension(Math.max(SettingsKit.s(120), w), SettingsKit.s(46));
+            b.setPreferredSize(size);
+            b.setMaximumSize(size);
+            b.addActionListener(e -> {
+                if (action != null) action.run();
+                if (closes) d.dispose();
+            });
+            if (first == null) {
+                first = b;
+                d.getRootPane().setDefaultButton(b);
+            }
+            buttons.add(b);
+        }
+
+        void open() {
+            d.pack();
+            Window w = d.getOwner();
+            if (w != null && w.isShowing()) {
+                d.setLocation(w.getX() + (w.getWidth() - d.getWidth()) / 2, w.getY() + (w.getHeight() - d.getHeight()) / 2);
+            } else {
+                d.setLocationRelativeTo(parent);
+            }
+            Motion.present(d);
+        }
+    }
+
+    /** Рамка со срезанными углами для старых окон, которые ещё не переведены на новый стиль. */
     public static final class CutBorder extends javax.swing.border.AbstractBorder {
         private final Color color;
         private final int cut;

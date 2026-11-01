@@ -5,11 +5,10 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.Shape;
-import java.awt.geom.GeneralPath;
+import java.awt.geom.RoundRectangle2D;
 
 /**
- * Форма кнопок CWLauncher: срез слева сверху и справа снизу.
- * Углы вне среза не закрашиваются, чтобы под ними был фон, а не чёрный прямоугольник.
+ * Единая современная форма кнопок и карточек.
  */
 public final class CutPaint {
 
@@ -21,16 +20,9 @@ public final class CutPaint {
     }
 
     public static Shape shape(int w, int h, int cut) {
-        int c = Math.max(6, Math.min(cut, Math.min(w, h) / 2 - 1));
-        GeneralPath p = new GeneralPath();
-        p.moveTo(c, 0);
-        p.lineTo(w, 0);
-        p.lineTo(w, h - c);
-        p.lineTo(Math.max(c, w - c), h);
-        p.lineTo(0, h);
-        p.lineTo(0, c);
-        p.closePath();
-        return p;
+        int radius = Math.max(12, Math.min(22, Math.min(w, h) / 2));
+        return new RoundRectangle2D.Float(0.5f, 0.5f,
+                Math.max(1, w - 1), Math.max(1, h - 1), radius, radius);
     }
 
     public static void button(Graphics2D g2, int w, int h, Color fill, Color line) {
@@ -39,7 +31,7 @@ public final class CutPaint {
         g2.setColor(fill);
         g2.fill(s);
         g2.setColor(line);
-        g2.setStroke(new BasicStroke(1.4f));
+        g2.setStroke(new BasicStroke(1f));
         g2.draw(s);
     }
 }

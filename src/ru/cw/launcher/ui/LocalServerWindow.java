@@ -21,9 +21,9 @@ public final class LocalServerWindow {
     public static void show(Window owner, LauncherApp app) {
         JDialog dialog = new JDialog(owner, "Локальные серверы", Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-        dialog.setMinimumSize(new Dimension(640, 430));
-        dialog.setSize(720, 500);
-        dialog.setLocationRelativeTo(owner);
+        dialog.setMinimumSize(new Dimension(980, 620));
+        if (owner != null && owner.isShowing()) dialog.setBounds(owner.getBounds());
+        else { dialog.setSize(1180, 740); dialog.setLocationRelativeTo(owner); }
 
         JPanel body = new JPanel(new BorderLayout(0, 12));
         body.setBackground(Theme.PANEL);
@@ -32,7 +32,7 @@ public final class LocalServerWindow {
 
         JLabel title = new JLabel("Локальные серверы");
         title.setForeground(Theme.TEXT);
-        title.setFont(Theme.H3);
+        title.setFont(Theme.H1.deriveFont(34f));
         JLabel addressHint = new JLabel(addressHint());
         addressHint.setForeground(Theme.MUTED);
         addressHint.setFont(Theme.SMALL);
@@ -64,14 +64,26 @@ public final class LocalServerWindow {
         });
         JScrollPane scroll = new JScrollPane(list);
         scroll.setBorder(new Dialogs.CutBorder(Theme.LINE, 6));
-        body.add(scroll, BorderLayout.CENTER);
+        scroll.setPreferredSize(new Dimension(360, 10));
+        body.add(scroll, BorderLayout.WEST);
 
         JLabel detail = new JLabel("Создайте сервер, чтобы начать локальное тестирование.");
         detail.setForeground(Theme.MUTED);
         detail.setFont(Theme.SMALL);
         JPanel footer = new JPanel(new BorderLayout(0, 8));
         footer.setOpaque(false);
-        footer.add(detail, BorderLayout.NORTH);
+        JPanel overview = new JPanel(new BorderLayout(0, 14));
+        overview.setOpaque(false);
+        overview.setBorder(BorderFactory.createCompoundBorder(new Dialogs.CutBorder(Theme.LINE, 12),
+                BorderFactory.createEmptyBorder(22, 24, 22, 24)));
+        JLabel overviewTitle = new JLabel("Управление сервером");
+        overviewTitle.setFont(Theme.H2.deriveFont(24f));
+        overviewTitle.setForeground(Color.WHITE);
+        overview.add(overviewTitle, BorderLayout.NORTH);
+        detail.setVerticalAlignment(SwingConstants.TOP);
+        detail.setFont(Theme.BODY);
+        overview.add(detail, BorderLayout.CENTER);
+        body.add(overview, BorderLayout.CENTER);
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         actions.setOpaque(false);
         CutButton create = new CutButton("Создать сервер", CutButton.Accent.PRIMARY);

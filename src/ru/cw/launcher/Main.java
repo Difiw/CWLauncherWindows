@@ -42,6 +42,8 @@ public final class Main {
     private static final int SINGLE_PORT = 47621;
     private static volatile MainWindow window;
     private static volatile ServerSocket single;
+    /** Держится до выхода процесса; ОС снимает блокировку сама, даже после падения. */
+    private static volatile java.nio.channels.FileLock instanceLock;
 
     private Main() {
     }
@@ -51,6 +53,7 @@ public final class Main {
             System.exit(runUpdater(args));
             return;
         }
+        waitForPrevious(args);
         String oauth = oauthArg(args);
         if (!acquireSingleInstance(oauth)) {
             System.exit(0);
@@ -67,6 +70,7 @@ public final class Main {
         }
         SettingsManager.load();
         ru.cw.launcher.core.PlayTime.begin();
+        ru.cw.launcher.core.ActivityStats.begin();
         if (SettingsManager.get().autoStart) {
             SettingsManager.applyAutoStart(true);
         }
@@ -315,10 +319,20 @@ public final class Main {
         return null;
     }
 
+    /**
+     * Второй процесс лаунчера не должен открывать второе окно. Главная защита — блокировка файла:
+     * её держит ОС, и два процесса не получат её одновременно даже при одновременном старте
+     * (автозапуск Windows + двойной щелчок). Порт нужен, чтобы разбудить уже открытое окно.
+     */
     private static boolean acquireSingleInstance(String oauthUri) {
+        if (!lockInstanceFile()) {
+            signalRunning(oauthUri);
+            return false;
+        }
         try {
+            // Без SO_REUSEADDR: на Windows он разрешает второму процессу занять тот же порт.
             ServerSocket socket = new ServerSocket();
-            socket.setReuseAddress(true);
+            socket.setReuseAddress(false);
             socket.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), SINGLE_PORT));
             single = socket;
             Thread t = new Thread(() -> {
@@ -343,14 +357,68 @@ public final class Main {
             t.start();
             return true;
         } catch (IOException e) {
+            // Файл уже наш, значит порт занят чужой программой. Окно всё равно открываем одно.
+            Log.warn("Порт " + SINGLE_PORT + " занят, активация второго запуска недоступна: " + Log.reason(e));
+            return true;
+        }
+    }
+
+    /** «Перезапустить лаунчер»: ждём, пока старый процесс закроется и отпустит блокировку. */
+    private static void waitForPrevious(String[] args) {
+        if (args == null) return;
+        for (String a : args) {
+            if (a == null || !a.startsWith("--wait-pid=")) continue;
+            try {
+                long pid = Long.parseLong(a.substring("--wait-pid=".length()).trim());
+                ProcessHandle.of(pid).ifPresent(h -> {
+                    try {
+                        h.onExit().get(20, TimeUnit.SECONDS);
+                    } catch (Exception ignored) {
+                    }
+                });
+            } catch (NumberFormatException ignored) {
+            }
+        }
+    }
+
+    private static void signalRunning(String oauthUri) {
+        for (int attempt = 0; attempt < 10; attempt++) {
             try (Socket s = new Socket()) {
                 s.connect(new InetSocketAddress("127.0.0.1", SINGLE_PORT), 800);
                 String payload = oauthUri == null ? "ACTIVATE\n" : "OAUTH " + oauthUri + "\n";
                 s.getOutputStream().write(payload.getBytes(StandardCharsets.UTF_8));
                 s.getOutputStream().flush();
-            } catch (IOException ignored) {
+                return;
+            } catch (IOException e) {
+                // Первый экземпляр мог ещё не открыть порт: подождём немного.
+                try {
+                    Thread.sleep(300);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
             }
+        }
+    }
+
+    private static boolean lockInstanceFile() {
+        try {
+            Path file = Paths.appData().resolve("launcher.lock");
+            java.nio.file.Files.createDirectories(file.getParent());
+            java.nio.channels.FileChannel ch = java.nio.channels.FileChannel.open(file,
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE);
+            java.nio.channels.FileLock lock = ch.tryLock();
+            if (lock == null) {
+                ch.close();
+                return false;
+            }
+            instanceLock = lock;
+            return true;
+        } catch (java.nio.channels.OverlappingFileLockException e) {
             return false;
+        } catch (IOException e) {
+            // Нет доступа к папке: остаётся защита портом, как раньше.
+            return true;
         }
     }
 

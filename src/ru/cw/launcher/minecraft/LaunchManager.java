@@ -327,7 +327,18 @@ public final class LaunchManager {
         } else if (!hasFlag(game, "--assetsDir")) {
             putFlag(game, "--assetsDir", vars.getOrDefault("${game_assets}", assetsRoot));
         }
-        addDirectConnect(game, cfg.serverAddress, profile.minecraftVersion);
+        // Сразу на сервер заходит только основная сборка. Дополнительные папки режима
+        // разработчика — для тестов модов: игра открывается в обычном меню.
+        boolean mainFolder = gameDir.toAbsolutePath().normalize()
+                .equals(Paths.instance(profileId).toAbsolutePath().normalize());
+        if (mainFolder) {
+            addDirectConnect(game, cfg.serverAddress, profile.minecraftVersion);
+        } else {
+            removeFlag(game, "--quickPlayMultiplayer");
+            removeFlag(game, "--server");
+            removeFlag(game, "--port");
+            Log.info("Запуск из отдельной сборки " + gameDir.getFileName() + ": без входа на сервер");
+        }
         cmd.addAll(game);
         return cmd;
     }

@@ -118,8 +118,12 @@ public final class Theme {
         UIManager.put("RadioButton.foreground", TEXT);
         UIManager.put("Button.background", PANEL_2);
         UIManager.put("Button.foreground", TEXT);
+        UIManager.put("Button.focus", new ColorUIResource(new Color(0, 0, 0, 0)));
+        UIManager.put("Button.select", new ColorUIResource(PANEL_2));
+        UIManager.put("Button.disabledText", new ColorUIResource(MUTED));
         UIManager.put("ToggleButton.background", PANEL_2);
         UIManager.put("ToggleButton.foreground", TEXT);
+        UIManager.put("ToggleButton.focus", new ColorUIResource(new Color(0, 0, 0, 0)));
         UIManager.put("Separator.foreground", LINE);
         UIManager.put("ToolTip.background", PANEL_2);
         UIManager.put("ToolTip.foreground", TEXT);

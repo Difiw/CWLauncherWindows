@@ -56,20 +56,78 @@ public final class PlayerSkin {
     public record SkinEntry(Path file, String name, boolean selected) {
     }
 
-    /** Все скины профиля; выбранный всегда первый. */
+    private static final String ORDER = "order.txt";
+
+    /**
+     * Все скины профиля в порядке, который задал пользователь (order.txt). Выбор скина порядок
+     * не меняет; новые скины добавляются в конец.
+     */
     public static List<SkinEntry> all(Account account) {
         if (account == null) return List.of();
         Path dir = Paths.accountSkinDir(account.id);
         Path chosen = selected(account);
-        List<SkinEntry> result = new ArrayList<>();
-        try (Stream<Path> files = Files.list(dir)) {
-            files.filter(Files::isRegularFile).filter(PlayerSkin::image)
-                    .sorted(Comparator.comparingLong(PlayerSkin::modified).reversed())
-                    .forEach(p -> result.add(new SkinEntry(p, displayName(p), same(p, chosen))));
+        List<Path> files = new ArrayList<>();
+        try (Stream<Path> list = Files.list(dir)) {
+            list.filter(Files::isRegularFile).filter(PlayerSkin::image)
+                    .sorted(Comparator.comparingLong(PlayerSkin::modified))
+                    .forEach(files::add);
         } catch (IOException ignored) {
         }
-        result.sort(Comparator.comparing(SkinEntry::selected).reversed());
+        List<String> order = readOrder(dir);
+        files.sort(Comparator.comparingInt(p -> {
+            int i = order.indexOf(p.getFileName().toString());
+            return i < 0 ? Integer.MAX_VALUE : i;
+        }));
+        List<SkinEntry> result = new ArrayList<>();
+        for (Path p : files) result.add(new SkinEntry(p, displayName(p), same(p, chosen)));
         return List.copyOf(result);
+    }
+
+    private static List<String> readOrder(Path dir) {
+        try {
+            Path f = dir.resolve(ORDER);
+            if (!Files.isRegularFile(f)) return List.of();
+            List<String> out = new ArrayList<>();
+            for (String line : Files.readAllLines(f)) if (!line.isBlank()) out.add(line.trim());
+            return out;
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
+    /** Сохраняет порядок скинов профиля после перестановки. */
+    public static void saveOrder(Account account, List<Path> skins) throws IOException {
+        if (account == null) return;
+        Path dir = Paths.accountSkinDir(account.id);
+        Files.createDirectories(dir);
+        List<String> names = new ArrayList<>();
+        for (Path p : skins) names.add(p.getFileName().toString());
+        Files.write(dir.resolve(ORDER), names);
+    }
+
+    /**
+     * Сохраняет скин из редактора. existing — файл, который правили (перезаписывается),
+     * null — новый скин с именем name; новый сразу выбирается. Возвращает путь файла.
+     */
+    public static Path save(Account account, Path existing, BufferedImage image, String name) throws IOException {
+        if (account == null || image == null) throw new IOException("Нет профиля или картинки");
+        Path dir = Paths.accountSkinDir(account.id);
+        Files.createDirectories(dir);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", bytes);
+        byte[] png = bytes.toByteArray();
+        if (existing != null) {
+            Path normalized = existing.toAbsolutePath().normalize();
+            if (!normalized.startsWith(dir.toAbsolutePath().normalize())) throw new IOException("Скин не принадлежит профилю");
+            Files.write(normalized, png);
+            if (same(normalized, selected(account))) refresh(account, true);
+            return normalized;
+        }
+        String base = safeBase((name == null || name.isBlank() ? "skin" : name.trim()) + ".png");
+        Path target = dir.resolve(base + "-" + digest(png).substring(0, 12) + ".png");
+        Files.write(target, png);
+        choose(account, target);
+        return target;
     }
 
     /** Добавляет скин в библиотеку этого профиля и сразу выбирает его. */

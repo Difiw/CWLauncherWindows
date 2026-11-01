@@ -61,11 +61,11 @@ public final class ProfileWindow {
     }
 
     private static JComponent header(JDialog d) {
-        JLabel title = new JLabel("CWLauncher");
-        title.setFont(Theme.H2);
+        JLabel title = new JLabel("Профиль");
+        title.setFont(Theme.H1.deriveFont(36f));
         title.setForeground(Color.WHITE);
-        JLabel sub = new JLabel(Lang.t("prof_title"));
-        sub.setFont(Theme.SMALL);
+        JLabel sub = new JLabel("Аккаунты, данные игрока и библиотека скинов");
+        sub.setFont(Theme.BODY);
         sub.setForeground(Theme.MUTED);
         JPanel titles = new JPanel();
         titles.setLayout(new BoxLayout(titles, BoxLayout.Y_AXIS));
@@ -83,18 +83,18 @@ public final class ProfileWindow {
 
     private static JComponent body(JDialog d, LauncherApp app, Runnable rebuild) {
         Account current = app.account();
-        JPanel left = column(
-                currentCard(d, app, current, rebuild),
-                infoCard(current),
-                settingsCard(d, app, current, rebuild));
-        JPanel right = column(
-                manageCard(d, app, current, rebuild),
-                elyCard(d, app, rebuild),
-                listCard(app, rebuild));
-        JPanel split = new JPanel(new GridLayout(1, 2, 14, 0));
+        JPanel left = column(listCard(app, rebuild), manageCard(d, app, current, rebuild));
+        JPanel right = column(currentCard(d, app, current, rebuild), infoCard(current),
+                settingsCard(d, app, current, rebuild), elyCard(d, app, rebuild));
+        JPanel split = new JPanel(new GridBagLayout());
         split.setOpaque(false);
-        split.add(left);
-        split.add(right);
+        GridBagConstraints lc = new GridBagConstraints();
+        lc.gridx = 0; lc.gridy = 0; lc.weightx = .30; lc.weighty = 1; lc.fill = GridBagConstraints.BOTH;
+        lc.insets = new Insets(0, 0, 0, 14);
+        split.add(left, lc);
+        GridBagConstraints rc = new GridBagConstraints();
+        rc.gridx = 1; rc.gridy = 0; rc.weightx = .70; rc.weighty = 1; rc.fill = GridBagConstraints.BOTH;
+        split.add(right, rc);
         return split;
     }
 
@@ -440,7 +440,7 @@ public final class ProfileWindow {
         Motion.present(box);
     }
 
-    private static void loginEly(Component parent, LauncherApp app, Runnable rebuild) {
+    static void loginEly(Component parent, LauncherApp app, Runnable rebuild) {
         if (ElyAuthManager.configError(app.cfg) != null && !configureEly(parent, app)) return;
         String problem = ElyAuthManager.configError(app.cfg);
         if (problem != null) {
@@ -465,7 +465,7 @@ public final class ProfileWindow {
     }
 
     /** Поля client id остаются: без них вход Ely.by не стартует. */
-    private static boolean configureEly(Component parent, LauncherApp app) {
+    static boolean configureEly(Component parent, LauncherApp app) {
         JDialog box = child(parent instanceof Window w ? w : null, Lang.t("prof_ely_cfg"));
         JTextField id = Theme.field(app.cfg.elyClientId == null ? "" : app.cfg.elyClientId, 28);
         JTextField redirect = Theme.field(app.cfg.elyRedirectUri == null ? "" : app.cfg.elyRedirectUri, 28);

@@ -23,13 +23,13 @@ if ($LASTEXITCODE -ne 0) { throw "SelfCheck не прошёл" }
 $dist = Join-Path $root "dist"
 if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
 New-Item -ItemType Directory -Path $dist | Out-Null
-& $jar --create --file (Join-Path $dist "CWLauncher.jar") --main-class ru.cw.launcher.Main -C build ru
+& $jar --create --file (Join-Path $dist "CWLauncher.jar") --main-class ru.cw.launcher.shell.ShellMain -C build ru
 if ($LASTEXITCODE -ne 0) { throw "jar не собран" }
 
 $stage = Join-Path $root "_jpackage"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 & $jpackage --type app-image --name CWLauncher --input $dist --main-jar CWLauncher.jar `
-  --main-class ru.cw.launcher.Main --icon $icon --dest $stage --app-version 3.6.7 `
+  --main-class ru.cw.launcher.shell.ShellMain --icon $icon --dest $stage --app-version 4.3.8 `
   --vendor "CWLauncher" --description "CWLauncher" `
   --java-options "-Dfile.encoding=UTF-8" --java-options "-Xms64m" --java-options "-Xmx512m" `
   --java-options "-XX:+UseG1GC" --java-options "-XX:+UseStringDeduplication" --java-options "-XX:MaxGCPauseMillis=50" `
@@ -83,6 +83,10 @@ New-Item -ItemType Directory -Path $bg -Force | Out-Null
 $repoBg = Join-Path $root "assets\background\main.png"
 if (Test-Path $repoBg) { Copy-Item $repoBg (Join-Path $bg "main.png") -Force }
 elseif (Test-Path $savedBg) { Copy-Item $savedBg (Join-Path $bg "main.png") -Force }
+$ui = Join-Path $out "assets\ui"
+New-Item -ItemType Directory -Path $ui -Force | Out-Null
+$mainReference = Join-Path $root "assets\ui\main-reference.png"
+if (Test-Path $mainReference) { Copy-Item $mainReference (Join-Path $ui "main-reference.png") -Force }
 $publishedUpdater = "W:\ProjectCode\CWLInstaller\dist\CWLauncher-Update.exe"
 $updaterDest = Join-Path $out "CWLauncher-Update.exe"
 if (Test-Path $publishedUpdater) { Copy-Item $publishedUpdater $updaterDest -Force }
@@ -95,3 +99,16 @@ else { throw "Uninstall.exe is missing" }
 Copy-Item (Join-Path $root "README.md") (Join-Path $out "README.md") -Force
 Copy-Item (Join-Path $root "config\example-config.json") (Join-Path $out "example-config.json") -Force
 Write-Output "READY $(Join-Path $out 'CWLauncher.exe')"
+
+# Shell (v3) tests and helper scripts next to the exe.
+$testsOut = Join-Path $out "tests"
+New-Item -ItemType Directory -Path $testsOut -Force | Out-Null
+$testBuild = Join-Path $root "build_tests"
+if (Test-Path $testBuild) { Remove-Item $testBuild -Recurse -Force }
+New-Item -ItemType Directory -Path $testBuild | Out-Null
+& $javac -encoding UTF-8 -cp build -d $testBuild (Join-Path $root "tests\ShellCheck.java") (Join-Path $root "tests\ShellFlow.java") (Join-Path $root "tests\ShellShot.java")
+if ($LASTEXITCODE -ne 0) { throw "Shell tests did not compile" }
+& $jar --create --file (Join-Path $testsOut "shell-tests.jar") -C $testBuild .
+Remove-Item $testBuild -Recurse -Force
+Copy-Item (Join-Path $root "scripts\*.cmd") $out -Force
+Write-Output "SHELL TESTS READY"

@@ -119,7 +119,7 @@ public final class BackgroundRenderer {
         // 4. тонкие светящиеся дуги
         for (int i = 0; i < 3; i++) {
             float rr = Math.max(w, h) * (0.34f + i * 0.11f);
-            float alpha = 26 - i * 7;
+            int alpha = 26 - i * 7;
             g.setColor(light ? new Color(40, 90, 160, alpha) : new Color(90, 165, 255, alpha));
             g.setStroke(new BasicStroke(1.4f - i * 0.3f));
             Shape arc = new java.awt.geom.Arc2D.Float(w * 0.5f - rr, h * 0.44f - rr, rr * 2, rr * 2,

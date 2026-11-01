@@ -138,27 +138,12 @@ public final class Motion {
 
     /** Кнопка чуть поднимается. Таймер уже есть у {@link #hot}, отдельной перерисовки окна нет. */
     public static void lift(Graphics2D g2, float hot) {
-        if (!on() || hot < 0.01f) return;
-        g2.translate(0, -2.2 * hot);
+        // Геометрия компонента не должна прыгать при наведении.
     }
 
     /** Блик проходит по кнопке один раз, пока курсор наезжает, и останавливается. */
     public static void sweep(Graphics2D g2, Shape shape, float hot) {
-        if (!on() || hot < 0.04f || shape == null) return;
-        Rectangle b = shape.getBounds();
-        float x = b.x - 28f + hot * (b.width + 56f);
-        Composite prev = g2.getComposite();
-        Shape prevClip = g2.getClip();
-        g2.clip(shape);
-        float alpha = 0.34f * (float) Math.sin(Math.min(1f, hot) * Math.PI);
-        g2.setComposite(AlphaComposite.SrcOver.derive(alpha));
-        g2.setPaint(new LinearGradientPaint(
-                x - 20f, b.y, x + 20f, b.y,
-                new float[]{0f, 0.5f, 1f},
-                new Color[]{new Color(255, 255, 255, 0), Color.WHITE, new Color(255, 255, 255, 0)}));
-        g2.fillRect(b.x, b.y, b.width, b.height);
-        g2.setComposite(prev);
-        g2.setClip(prevClip);
+        // Старый белый блик конфликтовал с тёмной системной темой Windows.
     }
 
     /** Постоянная перерисовка всего окна выключена: из-за неё интерфейс держал нулевой кадр. */

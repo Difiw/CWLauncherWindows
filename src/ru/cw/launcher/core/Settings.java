@@ -88,7 +88,7 @@ public class Settings {
     /** Папка игры для каждой версии Minecraft: версия → полный путь. */
     public Map<String, String> versionDirs = new LinkedHashMap<>();
     /** Затемнение фона во всех окнах, кроме главного меню. 0 — без затемнения, 80 — сильно. */
-    public int backgroundDim = 48;
+    public int backgroundDim = 24;
     public boolean offlineAllowed = true;
     public boolean closeLauncherOnLaunch = false;
     public boolean developerMode = false;
@@ -116,6 +116,38 @@ public class Settings {
     public String launcherUpdateEvery = "day";
     public String modsUpdateEvery = "day";
     public String launchBehavior = "menu";
+    // --- оформление нового интерфейса ---
+    public static final String ACCENT_DEFAULT = "#18A9E6";
+    /** Масштаб интерфейса в процентах: 80–130. */
+    public int uiScale = 100;
+    /** Акцентный цвет кнопок, переключателей и выделения. */
+    public String accentColor = ACCENT_DEFAULT;
+    /** Скругление карточек и кнопок, пиксели. */
+    public int cornerRadius = 14;
+    /** Непрозрачность карточек: 40–100. Меньше — сквозь них виден фон. */
+    public int panelOpacity = 75;
+    /** Картинка фона под всем интерфейсом, а не только в баннере. */
+    public boolean shellBackground = false;
+    /** Окно лаунчера на весь экран. Отдельно от полноэкранного режима Minecraft. */
+    public boolean launcherFullscreen = false;
+    /** Затемнение левой части баннера главной под текстом, 0–100. */
+    public int heroShade = 75;
+    /** Плавная анимация при перестановке скинов в профиле. */
+    public boolean skinReorderAnim = true;
+
+    // --- локальные серверы (режим разработчика) ---
+    /** Оставлять серверы работать после закрытия лаунчера. По умолчанию выключено: закрыл лаунчер — серверы остановились. */
+    public boolean serversKeepAlive = false;
+    /** Перезапускать сервер, если он упал (пока лаунчер открыт). */
+    public boolean serversAutoRestart = false;
+    /** Автобэкап запущенных серверов, минуты. 0 — выключен. */
+    public int serversBackupMinutes = 0;
+    /** Сколько последних автобэкапов хранить. */
+    public int serversBackupKeep = 5;
+    /** Память для новых серверов, МБ. */
+    public int serversDefaultRamMb = 2048;
+    /** Уведомлять о входе и выходе игроков. */
+    public boolean serversJoinNotify = true;
     public int maxAttempts = 3;                      // попыток получить корректную сборку
     public Map<String, Object> raw = new LinkedHashMap<>();
 
@@ -224,6 +256,20 @@ public class Settings {
         tech.put("launcherUpdateEvery", launcherUpdateEvery);
         tech.put("modsUpdateEvery", modsUpdateEvery);
         tech.put("launchBehavior", launchBehavior);
+        tech.put("uiScale", uiScale);
+        tech.put("accentColor", accentColor);
+        tech.put("cornerRadius", cornerRadius);
+        tech.put("panelOpacity", panelOpacity);
+        tech.put("shellBackground", shellBackground);
+        tech.put("launcherFullscreen", launcherFullscreen);
+        tech.put("heroShade", heroShade);
+        tech.put("skinReorderAnim", skinReorderAnim);
+        tech.put("serversKeepRunning", serversKeepAlive);
+        tech.put("serversAutoRestart", serversAutoRestart);
+        tech.put("serversBackupMinutes", serversBackupMinutes);
+        tech.put("serversBackupKeep", serversBackupKeep);
+        tech.put("serversDefaultRamMb", serversDefaultRamMb);
+        tech.put("serversJoinNotify", serversJoinNotify);
         tech.put("maxAttempts", maxAttempts);
         m.put("technical", tech);
         m.put("firstLaunch", raw.get("firstLaunch"));
@@ -326,6 +372,20 @@ public class Settings {
             s.launcherUpdateEvery = Json.str(tech, "launcherUpdateEvery", s.launcherUpdateEvery);
             s.modsUpdateEvery = Json.str(tech, "modsUpdateEvery", s.modsUpdateEvery);
             s.launchBehavior = Json.str(tech, "launchBehavior", s.launchBehavior);
+            s.uiScale = (int) Json.num(tech, "uiScale", s.uiScale);
+            s.accentColor = Json.str(tech, "accentColor", s.accentColor);
+            s.cornerRadius = (int) Json.num(tech, "cornerRadius", s.cornerRadius);
+            s.panelOpacity = (int) Json.num(tech, "panelOpacity", s.panelOpacity);
+            s.shellBackground = Json.bool(tech, "shellBackground", s.shellBackground);
+            s.launcherFullscreen = Json.bool(tech, "launcherFullscreen", s.launcherFullscreen);
+            s.heroShade = (int) Json.num(tech, "heroShade", s.heroShade);
+            s.skinReorderAnim = Json.bool(tech, "skinReorderAnim", s.skinReorderAnim);
+            s.serversKeepAlive = Json.bool(tech, "serversKeepRunning", s.serversKeepAlive);
+            s.serversAutoRestart = Json.bool(tech, "serversAutoRestart", s.serversAutoRestart);
+            s.serversBackupMinutes = (int) Json.num(tech, "serversBackupMinutes", s.serversBackupMinutes);
+            s.serversBackupKeep = (int) Json.num(tech, "serversBackupKeep", s.serversBackupKeep);
+            s.serversDefaultRamMb = (int) Json.num(tech, "serversDefaultRamMb", s.serversDefaultRamMb);
+            s.serversJoinNotify = Json.bool(tech, "serversJoinNotify", s.serversJoinNotify);
         }
         s.validate();
         return s;
@@ -391,6 +451,15 @@ public class Settings {
         if (commonWorld && (serverAddress == null || serverAddress.isBlank())) serverAddress = SERVER;
         if (modsUpdateEvery == null || modsUpdateEvery.isBlank()) modsUpdateEvery = "day";
         if (launchBehavior == null || launchBehavior.isBlank()) launchBehavior = "menu";
+        if (uiScale < 80) uiScale = 80;
+        if (uiScale > 130) uiScale = 130;
+        if (cornerRadius < 0) cornerRadius = 0;
+        if (cornerRadius > 28) cornerRadius = 28;
+        if (panelOpacity < 40) panelOpacity = 40;
+        if (panelOpacity > 100) panelOpacity = 100;
+        if (heroShade < 0) heroShade = 0;
+        if (heroShade > 100) heroShade = 100;
+        if (accentColor == null || !accentColor.matches("#[0-9a-fA-F]{6}")) accentColor = ACCENT_DEFAULT;
         closeLauncherOnLaunch = false;
         versionDirs.entrySet().removeIf(e -> e.getValue() == null || e.getValue().isBlank()
                 || ru.cw.launcher.util.Paths.forbiddenGameDir(java.nio.file.Paths.get(e.getValue())));

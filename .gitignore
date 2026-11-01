@@ -20,6 +20,7 @@ FullLauncherCW/assets/*
 !FullLauncherCW/assets/background/
 FullLauncherCW/assets/background/*
 !FullLauncherCW/assets/background/main.png
+FullLauncherCW.corrupt-*/
 
 *.class
 *.log
